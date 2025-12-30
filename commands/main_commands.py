@@ -20,7 +20,7 @@ def create_minigit():
         print("A gitlet folder already exists in the cwd you fooooool")
         return
 
-    # Create .gitlet./
+    # Create .minigit/
     minigit_dir.mkdir() 
     # Create subdirectories
     (minigit_dir / "objects").mkdir() 
@@ -31,7 +31,7 @@ def create_minigit():
     # Create instance of Commit class
     initial_commit = Commit(
         message = "initial commit",
-        author = "Teo",
+        author = "Probably not a Martian",
         parent = None,
         files = {}
     )
@@ -62,28 +62,43 @@ def create_minigit():
 
     # Create empty staging area
     index_file = minigit_dir / "index" # Creates a path object
-    empty_dict = {} # Write empty dictionary to the file to be filled later
+    empty_dict = {"additions": {}, "removals": []} # Create empty dictionary to be filled later
 
     # Create index_file as a FILE and put the empty dictionary in there
     with open(index_file, "wb") as f:
         pickle.dump(empty_dict, f) # Pickles the empty_dict and puts it in the file
     
-    print("Initialized MiniGit repository. Go ham. ")
+    print("Initialized MiniGit repository. Go ham.")
 
 
-def stage(filelist):
+def stage(files, type):
+    filelist = []
     index_file = Path(".minigit") / "index"
+    if isinstance(files, str):
+        filelist.append(files)
+    else:
+        filelist = files
 
     with open(index_file, "rb") as f:
         staging = pickle.load(f)
 
-        for filename in filelist:
-            filepath = Path(filename)
+    for filename in filelist:
+        filepath = Path(filename)
 
-            if not filepath.exists():
-                print(f"File {filename} does not exist")
-            
-            with open(filepath, "rb") as f:
-                file_content = f.read()
+        if not filepath.exists():
+            print(f"File {filename} does not exist")
+        
+        with open(filepath, "rb") as f:
+            file_content = f.read()
 
-            file_hash = hashlib.sha1(file_content).hexdigest()
+        file_hash = hashlib.sha1(file_content).hexdigest()
+
+        if type == "additions":
+            staging["additions"][filename] = file_hash
+        elif type == "removals":
+            staging["removals"].append(filename)
+
+    staging_bytes = pickle.dumps(staging)
+
+    with open(index_file, "wb") as f:
+        f.write(staging_bytes)

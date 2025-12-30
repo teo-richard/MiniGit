@@ -1,5 +1,5 @@
 .minigit/
 .DS_Store
 __pycache__/
-look_at_staging.py
 test.py
+venv/
