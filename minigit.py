@@ -23,6 +23,11 @@ def main():
 
     if args.command == "remove":
         main_commands.stage(args.files, "removals")
+    
+    if args.command == "empty":
+        main_commands.empty()
+
+    
 
 
 if __name__ == "__main__":
