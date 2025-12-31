@@ -1,6 +1,7 @@
 import sys
 from commands import main_commands
 from commands import history_commands
+from commands import basic_commands
 import argparse
 
 
@@ -18,9 +19,11 @@ def main():
 
     empty_parser = subparsers.add_parser("empty", help = "Empty staging area")
 
-    comit_parser = subparsers.add_parser("commit", help = "Commit the staging area")
+    commit_parser = subparsers.add_parser("commit", help = "Commit the staging area")
+    commit_parser.add_argument("message", type = str, help = "Commit message")
 
     status_parser = subparsers.add_parser("status", help = "Get status")
+    log_parser = subparsers.add_parser("log", help = "Print a log of commits in this branch.")
 
     args = parser.parse_args()
 
@@ -34,14 +37,18 @@ def main():
         main_commands.stage(args.files, "removals")
     
     if args.command == "empty":
-        main_commands.empty()
+        basic_commands.empty()
         print("Staging area emptied. ")
 
     if args.command == "commit":
-        main_commands.commit()
+        commit_message = args.message
+        main_commands.commit(commit_message)
 
     if args.command == "status":
         history_commands.status()
+    
+    if args.command == "log":
+        history_commands.log()
 
 
     

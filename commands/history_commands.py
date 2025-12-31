@@ -1,12 +1,12 @@
 import pickle
 from pathlib import Path
 import hashlib
-import datetime
+from datetime import datetime
 import os
 from colorama import Fore, Style, init
 from typing import List
 
-def state_status(filelist: dict | list, message:str, color:str) -> bool:
+def print_status(filelist: dict | list, message:str, color:str) -> bool:
     colors = {
         "red": Fore.RED,
         "green": Fore.GREEN,
@@ -15,7 +15,7 @@ def state_status(filelist: dict | list, message:str, color:str) -> bool:
         "magenta": Fore.MAGENTA,
         "cyan": Fore.CYAN,
         "white": Fore.WHITE,
-        "orange": Fore.LIGHTYELLOW_EX
+        "yellow": Fore.LIGHTYELLOW_EX
     }
     color_code = colors[color]
     print("\n" + message)
@@ -123,23 +123,23 @@ def status():
     print(f"Head: {head_hash}")
     print(f"Head: {branch_name}\n")
 
-    state_status(staging_area["additions"], 
+    print_status(staging_area["additions"], 
                  "Files in staging area to be added to the next commit:",
                  "green")
     
-    state_status(staging_area["removals"], 
+    print_status(staging_area["removals"], 
                  "Files in staging area to be removed in the next commit:",
                  "blue")
     
-    state_status(unmodified_tracked_not_staged,
+    print_status(unmodified_tracked_not_staged,
                  "Tracked files not in staging area that have NOT been modified since last commit:",
                  "cyan")
 
-    state_status(modified_tracked_not_staged,
+    print_status(modified_tracked_not_staged,
                  "Tracked files not in staging area that HAVE been modified since last commit:",
-                 "orange")
+                 "yellow")
     
-    state_status(not_tracked,
+    print_status(not_tracked,
                  "Files that are not tracked:",
                  "red")
     
@@ -147,3 +147,59 @@ def status():
 
 
     
+def log():
+    with open(".minigit/HEAD", "rb") as f:
+        head = pickle.load(f)
+
+    branch = head[1]
+    branch_path = Path(".minigit") / "refs" / "heads" / branch
+    with open(branch_path, "r") as f:
+        tip_hash = f.read()
+
+    commit_path = Path(".minigit") / "objects" / "commits" / tip_hash[:2] / tip_hash
+    with open(commit_path, "rb") as f:
+        commit = pickle.load(f)
+
+    # Printing stuff out:
+
+    print("Log of all commits IN THIS BRANCH ONLY\n")
+    
+    if commit.parent == None:
+        print(f"There is only the initial commit (hash = {tip_hash})\n")
+    else:
+        # The start of the commit that the branch is pointing to
+        print("---------------------------")
+        print(f"Commit hash: {tip_hash}")
+
+
+    while commit.parent != None:
+
+        print(f"Commit message: {commit.message}")
+        print(f"Author: {commit.author}")
+        print(f"{commit.timestamp.strftime("%Y-%m-%d %H:%M:%S")} \n")
+        print(f"Parent hash: {commit.parent}\n")
+        
+        print("Files:")
+        for k, v in commit.files.items():
+            print(f"{v} {k}")
+
+        # The start of the next commit
+        commit_path = Path(".minigit") / "objects" / "commits" / commit.parent[:2] / commit.parent
+        with open(commit_path, "rb") as f:
+            commit = pickle.load(f)
+
+        print("---------------------------")
+        print(f"Commit hash: {tip_hash}")
+
+    # Print initial commit
+    print(f"Commit message: {commit.message}")
+    print(f"Author: {commit.author}")
+    print(f"{commit.timestamp.strftime("%Y-%m-%d %H:%M:%S")} \n")
+    print(f"Parent hash: {commit.parent}\n")
+
+    print("Files:")
+    for k, v in commit.files.items():
+        print(f"{v} {k}")
+    print("---------------------------\n")
+
+    print("Log end.\n")

@@ -1,6 +1,7 @@
 """
 MiniGit - A simplified version control system
 This module contains the core commands for managing a MiniGit repository.
+init, stage, empty, commit
 """
 
 import os
@@ -8,6 +9,7 @@ from pathlib import Path
 import datetime
 import pickle
 import hashlib
+import getpass
 
 # Commit class represents a snapshot of the repository at a point in time
 class Commit:
@@ -21,7 +23,7 @@ class Commit:
         author: Name of the commit author
         timestamp: When the commit was created
     """
-    def __init__ (self, message, parent, files, author, timestamp = datetime.datetime.now):
+    def __init__ (self, message, parent, files, author, timestamp = datetime.datetime.now()):
         self.message = message
         self.parent = parent
         self.files = files
@@ -57,10 +59,13 @@ def create_minigit():
     (minigit_dir / "refs" / "heads").mkdir(parents=True)  # Stores branch pointers (parents=True creates intermediate dirs)
     # Note: HEAD is created later as a file, not a directory
 
+    # Get the author using getpass to get the username
+    username = getpass.user()
+
     # Create the initial commit object (empty repository state)
     initial_commit = Commit(
         message = "initial commit",
-        author = "Probably not a Martian",
+        author = username,
         parent = None,  # No parent since this is the first commit
         files = {}  # No files tracked in initial commit
     )
@@ -170,22 +175,9 @@ def stage(files, type):
     with open(index_file, "wb") as f:
         f.write(staging_bytes) # already in bytes so don't need pickle.dump
 
-def empty():
-    """
-    Clear the staging area by resetting it to an empty state.
-
-    This removes all staged additions and removals, effectively
-    unstaging all changes without affecting the working directory.
-    """
-    # Create empty staging area structure
-    empty_dict = {"additions": {}, "removals": []}
-
-    # Overwrite the index file with the empty staging area
-    with open(".minigit/index", "wb") as f:
-        pickle.dump(empty_dict, f)
 
 
-def commit():
+def commit(commit_message):
     """
     Create a new commit from the current staging area.
 
@@ -254,11 +246,14 @@ def commit():
     # Writing the updated staging area dictionary to index
     with open(".minigit/index", "wb") as f:
         pickle.dump(staging_area, f)
+
+    # Get username
+    username = getpass.getuser()
     
     # Create new commit object
     new_commit = Commit(
-        message = "placeholder message",
-        author = "No author specified",
+        message = commit_message,
+        author = username,
         parent = previous_commit_hash,
         files = final_staging_area
     )
@@ -295,7 +290,6 @@ def commit():
     empty()
 
     print(f"\nCommit completed. \nHead updated to: hash {head[0]}, branch {head[1]}.")
-    print("Staging area emptied. Congratulations on your commit!")
+    print("Staging area emptied. Congratulations on your commit!\n")
 
     
-
