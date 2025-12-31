@@ -1,6 +1,8 @@
 import sys
 from commands import main_commands
+from commands import history_commands
 import argparse
+
 
 
 def main():
@@ -8,10 +10,17 @@ def main():
     subparsers = parser.add_subparsers(dest="command")
 
     init_parser = subparsers.add_parser("init", help = "Initialize Project")
+
     add_parser = subparsers.add_parser("add", help = "Add to staging area to be committe")
     remove_parser = subparsers.add_parser("remove", help = "Add to staging area to be removed from repository.")
     add_parser.add_argument("files", nargs = "+", help = "Files to add to be comitted")
     remove_parser.add_argument("files", nargs = "+", help = "Files to add to be removed")
+
+    empty_parser = subparsers.add_parser("empty", help = "Empty staging area")
+
+    comit_parser = subparsers.add_parser("commit", help = "Commit the staging area")
+
+    status_parser = subparsers.add_parser("status", help = "Get status")
 
     args = parser.parse_args()
 
@@ -26,6 +35,14 @@ def main():
     
     if args.command == "empty":
         main_commands.empty()
+        print("Staging area emptied. ")
+
+    if args.command == "commit":
+        main_commands.commit()
+
+    if args.command == "status":
+        history_commands.status()
+
 
     
 
