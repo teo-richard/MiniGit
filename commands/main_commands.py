@@ -10,6 +10,7 @@ import datetime
 import pickle
 import hashlib
 import getpass
+import utils
 
 # Commit class represents a snapshot of the repository at a point in time
 class Commit:
@@ -48,7 +49,7 @@ def create_minigit():
 
     # Check if repository already exists to avoid overwriting
     if minigit_dir.exists():
-        print("A gitlet folder already exists in the cwd you fooooool")
+        print("A MiniGit folder already exists in the cwd you fooooool")
         return
 
     # Create .minigit directory and all necessary subdirectories
@@ -60,7 +61,7 @@ def create_minigit():
     # Note: HEAD is created later as a file, not a directory
 
     # Get the author using getpass to get the username
-    username = getpass.user()
+    username = getpass.getuser()
 
     # Create the initial commit object (empty repository state)
     initial_commit = Commit(
@@ -99,9 +100,9 @@ def create_minigit():
     # Create HEAD file to track current commit and branch
     # HEAD stores [current_commit_hash, current_branch_name]
     HEAD_path = minigit_dir / "HEAD"
-    head_list = [initial_commit_hash, "master"]
-    with open(HEAD_path, "wb") as f:
-        pickle.dump(head_list, f)  # Store as pickled list for easy modification later
+    head_content = "ref: refs/heads/master" # Stored like this for portability
+    with open(HEAD_path, "w") as f:
+        f.write(head_content)  # Store as pickled list for easy modification later
 
     # Create empty staging area (index)
     # The index tracks files to be added or removed in the next commit
@@ -195,15 +196,15 @@ def commit(commit_message):
     with open(".minigit/index", "rb") as f:
         staging_area = pickle.load(f)
 
-    # Get the hash of the current commit (parent of the commit we're creating)
-    with open(".minigit/HEAD", "rb") as f:
-        head = pickle.load(f)
+    # Update the branch to point to the new commit if head is not detached
+    # Get branch from head
+    head_tuple = utils.check_head()
+    prev_commit_hash = head_tuple[4]
 
-    previous_commit_hash = head[0]
 
     # Construct the path to the previous commit object
     # Commits are stored in subdirectories based on first 2 chars of hash
-    previous_commit_object_path = Path(".minigit") / "objects" / "commits" / previous_commit_hash[:2] / previous_commit_hash
+    previous_commit_object_path = Path(".minigit") / "objects" / "commits" / prev_commit_hash[:2] / prev_commit_hash
     with open(previous_commit_object_path, "rb") as f:
         previous_commit_object = pickle.load(f)
 
@@ -238,10 +239,6 @@ def commit(commit_message):
     #   take out the files in removals that the user wants to not include in this commit
     final_staging_area = {k: v for k, v in staging_area["additions"].items() if k not in staging_area["removals"]}
 
-    # Write the updated staging area back to the index
-    # TODO: This function is incomplete - still needs to:
-    #   - Clear the staging area
-
 
     # Writing the updated staging area dictionary to index
     with open(".minigit/index", "wb") as f:
@@ -254,7 +251,7 @@ def commit(commit_message):
     new_commit = Commit(
         message = commit_message,
         author = username,
-        parent = previous_commit_hash,
+        parent = prev_commit_hash,
         files = final_staging_area
     )
 
@@ -269,27 +266,73 @@ def commit(commit_message):
 
     with open(new_commit_path, "wb") as f:
         f.write(new_commit_bytes)
-
+    
     # Update the branch to point to the new commit if head is not detached
-    branch = head[1]
-    branch_file = Path(".minigit") / "refs" / "heads" / branch
-    with open(branch_file, "r") as f:
-        branch_hash = f.read()
-    if head[0] == branch_hash:
+    
+    head_tuple = utils.check_head()
+    branch_path = head_tuple[3]
+    branch_name = head_tuple[2]
+    head = head_tuple[1]
+    if head_tuple[0] == True:
+        print(f"\nNote: head is detached at {new_commit_hash}.")
+        with open(".minigit/HEAD", "w") as f:
+            f.write(new_commit_hash) # Head is detached still, so just put this new commit hash
+    else:
         new_branch_hash = new_commit_hash
-    with open(branch_file, "w") as f:
-        f.write(new_branch_hash)
+        with open(branch_path, "w") as f:
+            f.write(new_branch_hash)
+        new_head = f"ref: refs/heads/{branch_name}"
+        with open(".minigit/HEAD", "w") as f:
+            f.write(new_head)
+        print(f"\nHead points to {head} and you are on branch {branch_name}.")
+    
 
-    # Update HEAD to point to new commit
-    new_head = [new_commit_hash, branch]
-    with open(".minigit/HEAD", "wb") as f:
-        pickle.dump(new_head, f)
 
 
-    # Empty the staging area
-    empty()
+    print("Files committed:")
+    # Update the blobs
+    for filename, hash in final_staging_area.items():
+        # Get the blob
+        with open(filename, "rb") as f:
+            blob = f.read()
 
-    print(f"\nCommit completed. \nHead updated to: hash {head[0]}, branch {head[1]}.")
-    print("Staging area emptied. Congratulations on your commit!\n")
+        # Get the correct path
+        blob_subdir_path = Path(".minigit") / "objects" / "blobs" / hash[:2]
+        blob_subdir_path.mkdir(exist_ok = True)
+        blob_path = blob_subdir_path / hash
+
+        with open(blob_path, "wb") as f:
+            f.write(blob) # Blob is already in bytes as we read it in as bytes
+        print(f"     {filename}")
+
+    print("\nStaging area has been emptied. Congratulations on your commit!\n")
 
     
+
+def checkout(checkout_hash):
+    # Get the commit object
+    commit_subdr_path = Path(".minigit") / "objects" / "commits" / checkout_hash[:2]
+    commit_subdr_path.makedir(exist_ok = True)
+    commit_path = commit_subdr_path / checkout_hash
+
+    with open(commit_path, "rb") as f:
+        commit_object = pickle.load(f)
+    
+    commit_files = commit_object.files
+
+    # Update your files
+    for filename, hash in commit_files.items():
+        # Getting the old blob
+        blob_path = Path(".minigit") / "objects" / "blobs" / hash[:2] / hash
+        with open(blob_path, "rb") as f:
+            blob = f.read() # Your file is read in in binary form
+        
+        # Rewriting the current file with the file from the blob
+        with open(filename, "wb") as f:
+            f.write(blob)
+
+    # Update head
+
+    # This function is unfinished...
+
+
