@@ -84,7 +84,7 @@ def main():
 
     if args.command == "checkout":
         hash = args.hash
-        main_commands.checkout(checkout_hash = hash)
+        main_commands.checkout_commit(checkout_hash = hash)
 
 
     

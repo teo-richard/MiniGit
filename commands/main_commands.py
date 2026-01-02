@@ -4,7 +4,6 @@ This module contains the core commands for managing a MiniGit repository.
 init, stage, empty, commit
 """
 
-import os
 from pathlib import Path
 import datetime
 import pickle
@@ -308,31 +307,3 @@ def commit(commit_message):
     print("\nStaging area has been emptied. Congratulations on your commit!\n")
 
     
-
-def checkout(checkout_hash):
-    # Get the commit object
-    commit_subdr_path = Path(".minigit") / "objects" / "commits" / checkout_hash[:2]
-    commit_subdr_path.makedir(exist_ok = True)
-    commit_path = commit_subdr_path / checkout_hash
-
-    with open(commit_path, "rb") as f:
-        commit_object = pickle.load(f)
-    
-    commit_files = commit_object.files
-
-    # Update your files
-    for filename, hash in commit_files.items():
-        # Getting the old blob
-        blob_path = Path(".minigit") / "objects" / "blobs" / hash[:2] / hash
-        with open(blob_path, "rb") as f:
-            blob = f.read() # Your file is read in in binary form
-        
-        # Rewriting the current file with the file from the blob
-        with open(filename, "wb") as f:
-            f.write(blob)
-
-    # Update head
-
-    # This function is unfinished...
-
-

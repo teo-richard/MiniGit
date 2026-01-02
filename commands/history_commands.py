@@ -167,7 +167,7 @@ def status():
     head_detached = head_tuple[0]
     branch_name = head_tuple[2]
     if head_detached == True:
-        print(f"Note: head is detached as {prev_commit_hash}.")
+        print(f"Note: head is detached at {prev_commit_hash}.")
         print()
     else:
         print(f"Head attached to {branch_name} branch.")
@@ -223,7 +223,8 @@ def log():
 
     # Handle case where there's only the initial commit
     if commit.parent == None:
-        print(f"There is only the initial commit (hash = {tip_hash})\n")
+        print(f"There is only the initial commit.")
+        print(f"Commit hash: {tip_hash}")
     else:
         # Print header for the most recent commit
         print("---------------------------\n")
@@ -240,6 +241,7 @@ def log():
         for k, v in commit.files.items():
             print(f"{v} {k}")
 
+        next_commit_hash = commit.parent # This commit's parent hash is the hash of the next commit we'll list in the log
         # Load the parent commit
         commit_path = Path(".minigit") / "objects" / "commits" / commit.parent[:2] / commit.parent
         with open(commit_path, "rb") as f:
@@ -247,7 +249,7 @@ def log():
 
         # Print header for next commit
         print("\n---------------------------\n")
-        print(f"Commit hash: {tip_hash}")
+        print(f"Commit hash: {next_commit_hash}")
 
     # Print the initial commit (has no parent)
     print(f"{commit.timestamp.strftime("%Y-%m-%d %H:%M:%S")} \n")
