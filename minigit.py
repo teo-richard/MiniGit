@@ -3,10 +3,7 @@ MiniGit - A simple version control system
 Entry point for the MiniGit CLI application.
 """
 
-import sys
-from commands import main_commands
-from commands import history_commands
-from commands import basic_commands
+from commands import main_commands, history_commands, basic_commands, branch_commands
 import argparse
 
 
@@ -54,6 +51,17 @@ def main():
     checkout_parser = subparsers.add_parser("checkout", help = "Check out a commit")
     checkout_parser.add_argument("hash", type = str, help = "The commit hash")
 
+    # Branch switch/branch checkout command
+    switch_parser = subparsers.add_parser("switch", help = "Switch branches")
+    switch_parser.add_argument("branch", type = str, help = "The branch")
+    switch_parser.add_argument("-c", "--create", action = "store_true", 
+                          help = "Create the branch if it does not exist")
+    
+    # Branch list and delete commands
+    branch_parser = subparsers.add_parser("branch", help = "List branches")
+    branch_parser.add_argument("-d", "--delete", action = "store_true", help = "Delete branch")
+    branch_parser.add_argument("branch", help = "Branch to be removed")
+
     # Parse command-line arguments
     args = parser.parse_args()
 
@@ -85,6 +93,20 @@ def main():
     if args.command == "checkout":
         hash = args.hash
         main_commands.checkout_commit(checkout_hash = hash)
+
+    if args.command == "switch":
+        branch_name = args.branch
+        if args.create == True:
+            branch_commands.branch_create(branch_name = branch_name)
+        else:
+            branch_commands.branch_switch(branch_name = branch_name)
+        
+    if args.command == "branch":
+        if args.delete == True:
+            branch_name = args.branch
+            branch_commands.branch_delete(branch_name = branch_name)
+        else:
+            branch_commands.branch_list()
 
 
     

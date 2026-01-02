@@ -167,10 +167,10 @@ def status():
     head_detached = head_tuple[0]
     branch_name = head_tuple[2]
     if head_detached == True:
-        print(f"Note: head is detached at {prev_commit_hash}.")
+        print(f"\nNote: head is detached at {prev_commit_hash}.")
         print()
     else:
-        print(f"Head attached to {branch_name} branch.")
+        print(f"\nHead attached to {branch_name} branch.")
 
     print_status(staging_area["additions"],
                  "Files in staging area to be added to the next commit:",
