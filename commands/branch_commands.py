@@ -9,7 +9,6 @@ import pickle
 import hashlib
 import getpass
 import utils
-import _osx_support
 import os
 
 def checkout_commit(checkout_hash):
@@ -128,16 +127,20 @@ def branch_delete(branch_name):
     Note:
         This only deletes the branch reference, not the commits it pointed to.
     """
+
     # Check if HEAD is currently attached to this branch
     head_tuple = utils.check_head()
     head_branch = head_tuple[2]
+    head_detached = head_tuple[0]
 
     # Only allow deletion if HEAD is not attached to this branch
-    if head_branch != branch_name:
+    if (head_branch != branch_name) & (branch_name != None):
         branch_path = Path(".minigit") / "refs" / "heads" / branch_name
         os.remove(branch_path)
+    elif (branch_name == None) & (head_detached):
+        print("Cannot default to current branch because head is detached. Please try again.")
     else:
-        print(f"Cannot delete {branch_name} branch because HEAD is attached to this branch.")
+        print(f"Defaulting to current branch. Cannot delete {head_branch} branch because HEAD is currently attached to this branch.")
 
 
 def branch_list():
@@ -152,4 +155,26 @@ def branch_list():
     subdir = Path(".minigit") / "refs" / "heads"
     # Use os.walk to get the files then just list the names and the hashes
     # TODO: Complete this implementation
+
+    files_path_objects = Path(".minigit/refs/heads").iterdir() # Each file in this is a Path object still
+    # Un-Path-ify the files
+    branch_files = {f.name: f.read_text() for f in files_path_objects if f.is_file()}
+
+    head_tuple = utils.check_head()
+    head_detached = head_tuple[0]
+
+    if head_detached:
+        for k, v in branch_files.items():
+            print(f"{v} {k}")
+    else:
+        dict_to_print = {}
+        head_points_to = head_tuple[2]
+        for k in branch_files.keys():
+            if k == head_points_to:
+                dict_to_print[f"*{head_points_to}"] = branch_files[head_points_to]
+            else:
+                dict_to_print[k] = branch_files[k]
+        for k, v in dict_to_print.items():
+            print(f"{v} {k}")
+    
 

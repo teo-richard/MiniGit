@@ -60,7 +60,7 @@ def main():
     # Branch list and delete commands
     branch_parser = subparsers.add_parser("branch", help = "List branches")
     branch_parser.add_argument("-d", "--delete", action = "store_true", help = "Delete branch")
-    branch_parser.add_argument("branch", help = "Branch to be removed")
+    branch_parser.add_argument("branch", nargs = "?", default = None, help = "Branch to be removed")
 
     # Parse command-line arguments
     args = parser.parse_args()
