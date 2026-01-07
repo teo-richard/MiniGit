@@ -1,6 +1,6 @@
 .minigit/
 .DS_Store
 __pycache__/
-test.py
+testing/
 venv/
 .claude

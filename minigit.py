@@ -40,6 +40,7 @@ def main():
     # Commit command
     commit_parser = subparsers.add_parser("commit", help = "Commit the staging area")
     commit_parser.add_argument("message", type = str, help = "Commit message")
+    commit_parser.add_argument("-a", "--amend", action="store_true", help = "Change commit message of most recent commit")
 
     # Status command
     status_parser = subparsers.add_parser("status", help = "Get status")
@@ -61,6 +62,11 @@ def main():
     branch_parser = subparsers.add_parser("branch", help = "List branches")
     branch_parser.add_argument("-d", "--delete", action = "store_true", help = "Delete branch")
     branch_parser.add_argument("branch", nargs = "?", default = None, help = "Branch to be removed")
+
+    # Merge command
+    merge_parser = subparsers.add_parser("merge", help = "Merge branches")
+    merge_parser.add_argument("branch", help = "Branch to be merged into current branch")
+    merge_parser.add_argument("-m", "--message", type = str, default = "Merge commit", help = "Merge commit message")
 
     # Parse command-line arguments
     args = parser.parse_args()
@@ -92,7 +98,7 @@ def main():
 
     if args.command == "checkout":
         hash = args.hash
-        main_commands.checkout_commit(checkout_hash = hash)
+        branch_commands.checkout_commit(checkout_hash = hash)
 
     if args.command == "switch":
         branch_name = args.branch
@@ -107,6 +113,11 @@ def main():
             branch_commands.branch_delete(branch_name = branch_name)
         else:
             branch_commands.branch_list()
+
+    if args.command == "merge":
+        branch_name = args.branch
+        merge_message = args.message
+        branch_commands.merge(merge_branch_name = branch_name, message = merge_message)
 
 
     

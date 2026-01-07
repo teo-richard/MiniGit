@@ -11,6 +11,7 @@ import os
 from colorama import Fore, Style, init
 from typing import List
 import utils
+from utils import Commit
 
 def print_status(filelist: dict | list, message:str, color:str) -> bool:
     """
@@ -107,65 +108,76 @@ def status():
     - Previous commit files
     to categorize all files appropriately.
     """
+    # Dictionary to store all files in working directory with their content hashes
     directory_files = {}
 
     # Walk through all files in the working directory and compute their hashes
     # `dirs` is os.walk's internal list of dirs it will walk to in the starting folder
     for root, dirs, files in os.walk("."):
         for file in files:
-            # Filter out directories that should be ignored
+            # Filter out directories that should be ignored (modifies dirs in-place)
+            # This prevents os.walk from descending into ignored directories
             dirs[:] = [d for d in dirs if not check_ignore(d)]
             filepath = os.path.join(root, file)
             # Skip individual files that should be ignored
             if check_ignore(filepath) == True:
                 continue
-            # Read file and compute SHA-1 hash
+            # Read file contents in binary mode to compute hash
             with open(filepath, "rb") as f:
                 file_byte = f.read()
 
+            # Compute SHA-1 hash to detect file changes
             file_hash = hashlib.sha1(file_byte).hexdigest()
-            # Normalize path to remove leading './' and use forward slashes
+            # Normalize path to remove leading './' and use forward slashes for consistency
             normalized_path = filepath.lstrip("./").replace("\\", "/")
             directory_files[normalized_path] = file_hash
 
 
-    # Load the staging area to see what's been staged
+    # Load the staging area (index) to see what's been staged for next commit
     with open(".minigit/index", "rb") as f:
         staging_area = pickle.load(f)
 
     staging_area_additions = staging_area["additions"]  # dictionary {file name : hash}
     staging_area_removals = staging_area["removals"]  # list [file name, file name, ...]
 
-    # Get HEAD information to find current commit
+    # Get HEAD information to find most recent commit
+    # head_tuple contains: (detached, branch_path, branch_name, branch_hash, commit_hash)
     head_tuple = utils.check_head()
-    prev_commit_hash = head_tuple[4]
+    prev_commit_hash = head_tuple[4]  # Hash of the most recent commit
 
     # Load the previous commit to see what files were tracked
+    # Commits are stored in subdirectories using first 2 chars of hash for organization
     path_to_commit = Path(".minigit") / "objects" / "commits" / prev_commit_hash[:2] / prev_commit_hash
     with open(path_to_commit, "rb") as f:
         prev_commit_obj = pickle.load(f)
-    prev_commit_files = prev_commit_obj.files  # Dictionary of files in last commit
+    prev_commit_files = prev_commit_obj.files  # Dictionary {filename: hash} of files in last commit
 
     # Categorize files by comparing working directory, staging area, and previous commit
+    # This creates different file categories similar to `git status` output
 
-    # Get files that are tracked but not currently staged
-    all_staged_files = list(staging_area["additions"].keys()) + staging_area["removals"]
-    not_staged = {k: v for k, v in directory_files.items() if k not in all_staged_files}
-    tracked_not_staged = {k: v for k, v in not_staged.items() if k in prev_commit_files.keys()}
+    # Step 1: Get files that are tracked but not currently staged
+    all_staged_files = list(staging_area["additions"].keys()) + staging_area["removals"]  # All files in the staging area
+    not_staged = {k: v for k, v in directory_files.items() if k not in all_staged_files}  # Files in working dir but not staged
+    tracked_not_staged = {k: v for k, v in not_staged.items() if k in prev_commit_files.keys()}  # Not staged but in previous commit
 
-    # Separate tracked-not-staged files into unmodified and modified
-    unmodified_tracked_not_staged = {k: v for k, v in tracked_not_staged.items() if prev_commit_files.get(k) == v}
-    modified_tracked_not_staged = {k: v for k, v in tracked_not_staged.items() if prev_commit_files.get(k) != v}
+    # Step 2: Separate tracked-not-staged files into unmodified and modified
+    # Compare current file hashes with hashes from the previous commit
+    # All the k, v pairs in `tracked_not_staged.items()` come from your directory files
+    unmodified_tracked_not_staged = {k: v for k, v in tracked_not_staged.items() if prev_commit_files.get(k) == v}  # Hash unchanged
+    modified_tracked_not_staged = {k: v for k, v in tracked_not_staged.items() if prev_commit_files.get(k) != v}  # Hash changed
 
-    # Find completely untracked files (not in staging area or previous commit)
+    # Step 3: Find completely untracked files (never been committed or staged)
     not_tracked = {k: v for k, v in directory_files.items()
-                    if k not in staging_area_additions
-                    and k not in staging_area_removals
-                    and k not in prev_commit_files}
+                    if k not in staging_area_additions  # Not staged for addition
+                    and k not in staging_area_removals  # Not staged for removal
+                    and k not in prev_commit_files}  # Not in previous commit
 
     # Display all categorized files with appropriate colors
-    head_detached = head_tuple[0]
-    branch_name = head_tuple[2]
+    # Extract HEAD state information from the tuple
+    head_detached = head_tuple[0]  # Boolean: True if HEAD is detached
+    branch_name = head_tuple[2]  # Current branch name (if attached)
+
+    # Display HEAD state
     if head_detached == True:
         print(f"\nNote: head is detached at {prev_commit_hash}.")
         print()
@@ -210,20 +222,27 @@ def log():
 
     Walks backwards through the commit chain by following parent pointers.
     """
-    # Get current HEAD commit
+    # Get current HEAD commit information
     head_tuple = utils.check_head()
-    tip_hash = head_tuple[4]
+    tip_hash = head_tuple[4]  # Hash of the most recent commit
+    branch_name = head_tuple[2]  # Current branch name
+    head_detached = head_tuple[0]  # Whether HEAD is detached
 
-    # Load the most recent commit
+    # Load the most recent commit object
+    # Commits are stored in subdirectories using first 2 chars of hash
     commit_path = Path(".minigit") / "objects" / "commits" / tip_hash[:2] / tip_hash
     with open(commit_path, "rb") as f:
         commit = pickle.load(f)
 
-    print("Log of all commits IN THIS BRANCH ONLY\n")
+    # Display appropriate message based on HEAD state
+    if head_detached:
+        print(f"\nHead is detached. Log walks backwards from {tip_hash} to initial commit.\n")
+    else:
+        print(f"\nLog of all commits {branch_name} branch only!\n")
 
-    # Handle case where there's only the initial commit
-    if commit.parent == None:
-        print(f"There is only the initial commit.")
+    # Handle case where there's only the initial commit (no parents)
+    if commit.parent == []:
+        print(f"There is only the initial commit.\n")
         print(f"Commit hash: {tip_hash}")
     else:
         # Print header for the most recent commit
@@ -231,35 +250,50 @@ def log():
         print(f"Commit hash: {tip_hash}")
 
     # Walk backwards through commit history following parent pointers
-    while commit.parent != None:
+    # Continue until we reach the initial commit (which has no parent)
+    while commit.parent != []:
+        # Display commit details
         print(f"{commit.timestamp.strftime("%Y-%m-%d %H:%M:%S")} \n")
         print(f"Commit message: {commit.message}")
         print(f"Author: {commit.author}")
         print(f"Parent hash: {commit.parent}\n")
 
+        # Display all files in this commit with their hashes
         print("Files:")
         for k, v in commit.files.items():
             print(f"{v} {k}")
 
-        next_commit_hash = commit.parent # This commit's parent hash is the hash of the next commit we'll list in the log
-        # Load the parent commit
-        commit_path = Path(".minigit") / "objects" / "commits" / commit.parent[:2] / commit.parent
+        # Move to the parent commit (going backwards in history)
+        next_commit_hash = commit.parent[0]  # Get hash of parent commit
+        # Load the parent commit object from disk
+        commit_path = Path(".minigit") / "objects" / "commits" / next_commit_hash[:2] / next_commit_hash
         with open(commit_path, "rb") as f:
             commit = pickle.load(f)
 
-        # Print header for next commit
+        # Print header for next commit in the log
         print("\n---------------------------\n")
         print(f"Commit hash: {next_commit_hash}")
 
-    # Print the initial commit (has no parent)
+    # Print the initial commit (has no parent, so wasn't printed in loop)
     print(f"{commit.timestamp.strftime("%Y-%m-%d %H:%M:%S")} \n")
     print(f"Commit message: {commit.message}")
     print(f"Author: {commit.author}")
     print(f"Parent hash: {commit.parent}\n")
 
+    # Display files in initial commit
     print("Files:")
     for k, v in commit.files.items():
         print(f"{v} {k}")
     print("---------------------------\n")
 
     print("Log end.\n")
+
+
+def amend():
+    """
+    Placeholder for amend command to modify the most recent commit.
+
+    Not yet implemented. Would allow changing the message or contents
+    of the most recent commit (similar to `git commit --amend`).
+    """
+    pass

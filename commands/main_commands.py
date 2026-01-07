@@ -10,25 +10,8 @@ import pickle
 import hashlib
 import getpass
 import utils
+from utils import Commit
 
-# Commit class represents a snapshot of the repository at a point in time
-class Commit:
-    """
-    Represents a single commit in the repository.
-
-    Attributes:
-        message: Commit message describing the changes
-        parent: Hash of the parent commit (None for initial commit)
-        files: Dictionary mapping filenames to their content hashes
-        author: Name of the commit author
-        timestamp: When the commit was created
-    """
-    def __init__ (self, message, parent, files, author, timestamp = datetime.datetime.now()):
-        self.message = message
-        self.parent = parent
-        self.files = files
-        self.author = author
-        self.timestamp = timestamp 
 
 def create_minigit():
     """
@@ -66,7 +49,7 @@ def create_minigit():
     initial_commit = Commit(
         message = "initial commit",
         author = username,
-        parent = None,  # No parent since this is the first commit
+        parent = [],  # No parent since this is the first commit
         files = {}  # No files tracked in initial commit
     )
 
@@ -250,7 +233,7 @@ def commit(commit_message):
     new_commit = Commit(
         message = commit_message,
         author = username,
-        parent = prev_commit_hash,
+        parent = [prev_commit_hash],
         files = final_staging_area
     )
 
