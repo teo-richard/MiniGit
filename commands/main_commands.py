@@ -171,8 +171,6 @@ def commit(commit_message):
     4. Creates a new commit object
     5. Saves it to the objects directory
     6. Updates HEAD to point to the new commit
-
-    Note: This function appears to be incomplete.
     """
     # Load the current staging area to see what changes are ready to commit
     with open(".minigit/index", "rb") as f:
@@ -287,6 +285,5 @@ def commit(commit_message):
             f.write(blob) # Blob is already in bytes as we read it in as bytes
         print(f"     {filename}")
 
-    print("\nStaging area has been emptied. Congratulations on your commit!\n")
 
     

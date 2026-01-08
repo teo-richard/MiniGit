@@ -86,9 +86,13 @@ def main():
         print("\nStaging area emptied.\n")
 
     if args.command == "commit":
-        commit_message = args.message
-        main_commands.commit(commit_message)
-        basic_commands.empty()
+        message = args.message
+        if args.amend:
+            history_commands.amend(message)
+        else:
+            main_commands.commit(message)
+            basic_commands.empty()
+            print("\nStaging area has been emptied. Congratulations on your commit!\n")
 
     if args.command == "status":
         history_commands.status()

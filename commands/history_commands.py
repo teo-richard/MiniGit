@@ -289,11 +289,52 @@ def log():
     print("Log end.\n")
 
 
-def amend():
+def amend(message):
     """
     Placeholder for amend command to modify the most recent commit.
 
     Not yet implemented. Would allow changing the message or contents
     of the most recent commit (similar to `git commit --amend`).
     """
-    pass
+    
+    head_tuple = utils.check_head()
+    hash = head_tuple[4] # Hash of most recent commit
+
+    # Open the commit and get the object
+    commit_subdir = Path(".minigit") / "objects" / "commits" / hash[:2] # Need the subdir path isolated for when checking subdir deletion
+    commit_path = commit_subdir / hash
+    with open(commit_path, "rb") as f:
+        commit_object = pickle.load(f)
+
+    # Change the message attribute to be the new message
+    commit_object.message = message 
+
+    # Delete the old commit spot (and the subdirectory if there's nothing left in it)
+    commit_path.unlink()
+    filelist = os.listdir(commit_subdir)
+    if filelist:
+        pass
+    else:
+        commit_subdir.rmdir()
+
+    # Serialize and hash the updated commit object
+    commit_bytes = pickle.dumps(commit_object)
+    commit_hash = hashlib.sha1(commit_bytes).hexdigest()
+
+    # Make a new spot in `/commits` for it
+    new_commit_subdir = Path(".minigit") / "objects" / "commits" / commit_hash[:2]
+    new_commit_subdir.mkdir(exist_ok=True)
+    new_commit_path = new_commit_subdir / commit_hash
+    with open(new_commit_path, "wb") as f:
+        f.write(commit_bytes)
+
+    # Update HEAD
+    head_detached = head_tuple[0]
+    branch_name = head_tuple[2]
+    if head_detached:
+        head_content = commit_hash
+    else:
+        head_content = f"refs: refs/heads{branch_name}"
+
+    with open(".minigit/HEAD", "w") as f:
+        f.write(head_content)
