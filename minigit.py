@@ -3,7 +3,7 @@ MiniGit - A simple version control system
 Entry point for the MiniGit CLI application.
 """
 
-from commands import main_commands, history_commands, basic_commands, branch_commands
+from commands import main_commands, info_commands, basic_commands, branch_commands
 import argparse
 
 
@@ -99,17 +99,17 @@ def main():
     if args.command == "commit":
         message = args.message
         if args.amend:
-            history_commands.amend(message)
+            info_commands.amend(message)
         else:
             main_commands.commit(message)
             basic_commands.empty()
             print("\nStaging area has been emptied. Congratulations on your commit!\n")
 
     if args.command == "status":
-        history_commands.status()
+        info_commands.status()
 
     if args.command == "log":
-        history_commands.log()
+        info_commands.log()
 
     if args.command == "checkout":
         hash = args.hash
