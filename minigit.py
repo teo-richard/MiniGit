@@ -36,6 +36,8 @@ def main():
 
     # Empty staging area command
     empty_parser = subparsers.add_parser("empty", help = "Empty staging area")
+    empty_parser.add_argument("-f", "--file", action="store_true", help = "Take a file out of staging area")
+    empty_parser.add_argument("filename", type = str, help = "File to take out of staging area")
 
     # Commit command
     commit_parser = subparsers.add_parser("commit", help = "Commit the staging area")
@@ -82,8 +84,12 @@ def main():
         main_commands.stage(args.files, "removals")
 
     if args.command == "empty":
-        basic_commands.empty()
-        print("\nStaging area emptied.\n")
+        filename = args.filename
+        if args.file:
+            basic_commands.empty_file(filename)
+        else:
+            basic_commands.empty()
+            print("\nStaging area emptied.\n")
 
     if args.command == "commit":
         message = args.message

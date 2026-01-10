@@ -148,8 +148,11 @@ def stage(files, type):
         # If file is already staged, its hash will be updated
         if type == "additions":
             staging["additions"][normalized_filename] = file_hash  # Store as {filename: hash}
+            if normalized_filename in staging["removals"]:  # Remove the file from removals if it is in there
+                staging["removals"].remove(normalized_filename)
         elif type == "removals":
             staging["removals"].append(normalized_filename)  # Store in list
+            staging["additions"].pop(normalized_filename) # Remove the file from additions if it is in there
 
     # Serialize the updated staging area back to bytes
     staging_bytes = pickle.dumps(staging)
