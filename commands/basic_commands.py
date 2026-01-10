@@ -3,6 +3,7 @@ Basic utility commands for MiniGit.
 """
 
 import pickle
+import utils
 
 def empty():
     """
@@ -23,30 +24,35 @@ def empty():
 def minigitignore():
     pass
 
-def empty_file(filename):
+def empty_file(files):
     """
-    Remove a specific file from the staging area.
+    Remove one or more files from the staging area.
 
     Args:
-        filename: The file to unstage
+        files: Either a single filename (str) or list of filenames to unstage
 
     This will remove the file from either additions or removals in the staging area.
-    If the index file is empty or corrupted, it initializes a new staging area.
+    Supports selective unstaging of multiple files in one operation.
     """
-    try:
-        with open(".minigit/index", "rb") as f:
+    filelist = utils.files_to_list(files)
+
+    # Load current staging area
+    with open(".minigit/index", "rb") as f:
             staging = pickle.load(f)
-    except (EOFError, FileNotFoundError):
-        # If the file is empty or doesn't exist, initialize empty staging area
-        staging = {"additions": {}, "removals": []}
 
-    if filename in staging["removals"]:
-        staging["removals"].remove(filename)
-    elif filename in staging["additions"]:
-        staging["additions"].pop(filename)
-    else:
-        print(f"Warning: '{filename}' is not in the staging area.")
-        return
+    # Process each file to unstage
+    for file in filelist:
+        # Check if file is staged for removal and remove it from that list
+        if file in staging["removals"]:
+            staging["removals"].remove(file)
+        else:
+            # Otherwise try to remove from additions, catching case where file isn't staged
+            try:
+                staging["additions"].pop(file)
+            except KeyError:
+                # Provide helpful error message if file isn't actually in staging area
+                print(f"Cannot remove {file} from staging area. Check if file is actually in staging area.")
 
-    with open(".minigit/index", "wb") as f:
-         pickle.dump(staging, f)
+        # Write updated staging area back to disk after each file
+        with open(".minigit/index", "wb") as f:
+            pickle.dump(staging, f)

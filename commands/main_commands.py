@@ -111,12 +111,9 @@ def stage(files, type):
     """
     # Normalize input to a list for consistent processing
     # Allows function to accept both single file (str) and multiple files (list)
-    filelist = []
+    # Refactored to use utility function for code reuse
     index_file = Path(".minigit") / "index"
-    if isinstance(files, str):
-        filelist.append(files)  # Convert single file to list
-    else:
-        filelist = files  # Already a list
+    filelist = utils.files_to_list(files)
 
     # Load the current staging area from the index file
     # The index contains: {"additions": {filename: hash}, "removals": [filename]}
@@ -151,8 +148,24 @@ def stage(files, type):
             if normalized_filename in staging["removals"]:  # Remove the file from removals if it is in there
                 staging["removals"].remove(normalized_filename)
         elif type == "removals":
-            staging["removals"].append(normalized_filename)  # Store in list
-            staging["additions"].pop(normalized_filename) # Remove the file from additions if it is in there
+            # Validate that file is tracked before allowing it to be staged for removal
+            # Only tracked files (in HEAD commit) can be removed
+            head_tuple = utils.check_head()
+            head_hash = head_tuple[4]
+            # Load the current HEAD commit to check which files are tracked
+            commit_path = Path(".minigit") / "objects" / "commits" / head_hash[:2] / head_hash
+            with open(commit_path, "rb") as f:
+                commit_object = pickle.load(f)
+            commit_files = commit_object.files
+            # Only add to removals if file exists in HEAD commit
+            if normalized_filename in commit_files.keys():
+                staging["removals"].append(normalized_filename)  # Store in list
+                # Clean up: remove from additions if it was previously staged there
+                if normalized_filename in staging["additions"]:
+                    staging["additions"].pop(normalized_filename)
+            else:
+                # Provide helpful error for attempting to remove untracked files
+                print(f"Cannot remove {normalized_filename}. Please check if the file is actually being tracked. ")
 
     # Serialize the updated staging area back to bytes
     staging_bytes = pickle.dumps(staging)

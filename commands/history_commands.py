@@ -50,46 +50,6 @@ def print_status(filelist: dict | list, message:str, color:str) -> bool:
             print(f"{color_code} {value} {key}{Style.RESET_ALL}")
 
 
-def check_ignore(filepath):
-    """
-    Check if a file path should be ignored by MiniGit.
-
-    Ignores:
-    - Python cache files (__pycache__, .pyc)
-    - Virtual environments (venv/)
-    - Git repositories (.git, .minigit)
-    - System files (.DS_Store)
-    - Hidden files/directories (starting with .)
-
-    Args:
-        filepath: Path to check
-
-    Returns:
-        bool: True if file should be ignored, False otherwise
-    """
-    # List of patterns to ignore
-    ignore_patterns = [
-        '__pycache__',
-        '.pyc',
-        'venv/',
-        '.git',
-        '.minigit',
-        '.DS_Store',
-    ]
-
-    # Check if any ignore pattern is in the filepath
-    for pattern in ignore_patterns:
-        if pattern in filepath:
-            return True
-
-    # Also ignore any hidden files/directories (starting with .)
-    parts = filepath.split(os.sep)
-    if any(part.startswith(".") and part != "." for part in parts):
-        return True
-
-    return False
-
-
 def status():
     """
     Display the current repository status.
@@ -108,29 +68,9 @@ def status():
     - Previous commit files
     to categorize all files appropriately.
     """
-    # Dictionary to store all files in working directory with their content hashes
-    directory_files = {}
-
-    # Walk through all files in the working directory and compute their hashes
-    # `dirs` is os.walk's internal list of dirs it will walk to in the starting folder
-    for root, dirs, files in os.walk("."):
-        for file in files:
-            # Filter out directories that should be ignored (modifies dirs in-place)
-            # This prevents os.walk from descending into ignored directories
-            dirs[:] = [d for d in dirs if not check_ignore(d)]
-            filepath = os.path.join(root, file)
-            # Skip individual files that should be ignored
-            if check_ignore(filepath) == True:
-                continue
-            # Read file contents in binary mode to compute hash
-            with open(filepath, "rb") as f:
-                file_byte = f.read()
-
-            # Compute SHA-1 hash to detect file changes
-            file_hash = hashlib.sha1(file_byte).hexdigest()
-            # Normalize path to remove leading './' and use forward slashes for consistency
-            normalized_path = filepath.lstrip("./").replace("\\", "/")
-            directory_files[normalized_path] = file_hash
+    # Get dictionary of all files in working directory with their hashes
+    # This has been refactored into a utility function to avoid code duplication
+    directory_files = utils.get_directory_files_dictionary()
 
 
     # Load the staging area (index) to see what's been staged for next commit

@@ -5,6 +5,8 @@ Utility functions for MiniGit operations.
 from datetime import datetime
 from pathlib import Path
 import pickle
+import hashlib
+import os
 
 # Commit class represents a snapshot of the repository at a point in time
 class Commit:
@@ -74,3 +76,101 @@ def check_head():
             hash = f.read().strip()
 
     return head_detached, head, branch_name, hash_path, hash
+
+
+def files_to_list(files):
+    """
+    Normalize file input to always return a list.
+
+    This utility function handles both single file (str) and multiple files (list) input,
+    converting them to a consistent list format for uniform processing.
+
+    Args:
+        files: Either a string (single file) or list of strings (multiple files)
+
+    Returns:
+        list: Normalized list of filenames
+    """
+    filelist = []
+    if isinstance(files, str):
+        filelist.append(files)  # Convert single file to list
+    else:
+        filelist = files  # Already a list
+
+    return filelist
+
+def check_ignore(filepath):
+    """
+    Check if a file path should be ignored by MiniGit.
+
+    Ignores:
+    - Python cache files (__pycache__, .pyc)
+    - Virtual environments (venv/)
+    - Git repositories (.git, .minigit)
+    - System files (.DS_Store)
+    - Hidden files/directories (starting with .)
+
+    Args:
+        filepath: Path to check
+
+    Returns:
+        bool: True if file should be ignored, False otherwise
+    """
+    # List of patterns to ignore
+    ignore_patterns = [
+        '__pycache__',
+        '.pyc',
+        'venv/',
+        '.git',
+        '.minigit',
+        '.DS_Store',
+    ]
+
+    # Check if any ignore pattern is in the filepath
+    for pattern in ignore_patterns:
+        if pattern in filepath:
+            return True
+
+    # Also ignore any hidden files/directories (starting with .)
+    parts = filepath.split(os.sep)
+    if any(part.startswith(".") and part != "." for part in parts):
+        return True
+
+    return False
+
+def get_directory_files_dictionary():
+    """
+    Create a dictionary mapping all non-ignored files to their SHA-1 hashes.
+
+    This function walks the entire working directory, filters out ignored files,
+    and computes content hashes for tracking file changes.
+
+    Returns:
+        dict: Dictionary mapping normalized file paths to their SHA-1 hashes
+    """
+    # Dictionary to store all files in working directory with their content hashes
+    directory_files = {}
+
+    # Walk through all files in the working directory and compute their hashes
+    # `dirs` is os.walk's internal list of dirs it will walk to in the starting folder
+    for root, dirs, files in os.walk("."):
+        for file in files:
+            # Filter out directories that should be ignored (modifies dirs in-place)
+            # This prevents os.walk from descending into ignored directories
+            dirs[:] = [d for d in dirs if not check_ignore(d)]
+            filepath = os.path.join(root, file)
+            # Skip individual files that should be ignored
+            if check_ignore(filepath) == True:
+                continue
+            # Read file contents in binary mode to compute hash
+            with open(filepath, "rb") as f:
+                file_byte = f.read()
+
+            # Compute SHA-1 hash to detect file changes
+            file_hash = hashlib.sha1(file_byte).hexdigest()
+            # Normalize path to remove leading './' and use forward slashes for consistency
+            normalized_path = filepath.lstrip("./").replace("\\", "/")
+            directory_files[normalized_path] = file_hash
+
+    return directory_files
+
