@@ -27,18 +27,40 @@ def checkout_commit(checkout_hash):
     Note:
         For branch checkout, use branch_switch() instead to maintain an attached HEAD.
     """
-    # Load the commit object from the objects database
-    commit_object = utils.get_commit(checkout_hash)
 
-    # Extract the file mappings (filename -> blob hash) from the commit
-    commit_files = commit_object.files
+    # Get the files currently being tracked
+    head_tuple = utils.check_head()
+    head_hash = head_tuple[4]
+    previous_commit_object = utils.get_commit(head_hash)
+    tracked_files = previous_commit_object.files
 
-    utils.make_blob_current(commit_files)
+    # Check if the files have been modified
+    checkout_good = True
+    for file, hash in tracked_files.items():
+        if not os.path.exists(file):
+            print(f"Unable to checkout: tracked file {file} is missing. Did you delete it?")
+            checkout_good = False
+            break
+        try:
+            with open(file, "rb") as f:
+                filecontent = f.read()
+            filehash = hashlib.sha1(filecontent).hexdigest()
+            if filehash != hash:
+                print("Unable to checkout because it will overwrite changes that have not been committed. ")
+                checkout_good = False
+                break
+        except (PermissionError, IOError, IsADirectoryError) as e:
+            print(f"Unable to checkout: There is a problem reading {file}.\n{e}")
+            checkout_good = False
+            break
 
-    # Update HEAD to point directly to the commit hash (detached HEAD state)
-    # This means HEAD is not attached to any branch
-    with open(".minigit/HEAD", "w") as f:
-        f.write(checkout_hash)
+    if checkout_good == True:
+        utils.get_old_commit_state(checkout_hash, tracked_files)
+        
+        # Update HEAD to point directly to the commit hash (detached HEAD state)
+        # This means HEAD is not attached to any branch
+        with open(".minigit/HEAD", "w") as f:
+            f.write(checkout_hash)
 
 
 def branch_switch(branch_name):

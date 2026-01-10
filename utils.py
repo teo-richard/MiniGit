@@ -192,3 +192,19 @@ def get_commit(hash):
         prev_commit_obj = pickle.load(f)
     
     return prev_commit_obj
+
+
+def get_old_commit_state(hash, tracked_files):
+    # Load the commit object from the objects database
+    commit_object = get_commit(hash)
+
+    # Extract the file mappings (filename -> blob hash) from the commit
+    commit_files = commit_object.files
+    make_blob_current(commit_files)
+
+
+    # Delete the files that are being tracked but aren't in the commit you are doing checkout to
+    delete_files = [i for i in tracked_files.keys() if i not in commit_files.keys()]
+    for file in delete_files:
+        if os.path.exists(file):
+            os.remove(file)

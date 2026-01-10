@@ -3,7 +3,7 @@ MiniGit - A simple version control system
 Entry point for the MiniGit CLI application.
 """
 
-from commands import main_commands, info_commands, basic_commands, branch_commands
+from commands import main_commands, info_commands, basic_commands, branch_commands, history_commands
 import argparse
 
 
@@ -75,6 +75,15 @@ def main():
     mgignore_parser = subparsers.add_parser("minigitignore", help = "Add a file to minigitignore")
     mgignore_parser.add_argument("files", nargs = "+", help = "Files to add to the minigitignore")
 
+    # Revert command
+    revert_parser = subparsers.add_parser("revert", help = "Revert to earlier commit. ")
+    revert_parser.add_argument("hash", help = "The commit to revert to.")
+    revert_parser.add_argument("-m", "--m", type = str, default = None, help = "Revert commit message.")
+
+    # Reset command
+    reset_parser = subparsers.add_parser("Reset", help = "Reset to earlier commit. Destroys history.")
+    reset_parser.add_argument("hash", help = "The commit to reset to.")
+
     # Parse command-line arguments
     args = parser.parse_args()
 
@@ -137,6 +146,15 @@ def main():
     if args.command == "minigitignore":
         files = args.files
         basic_commands.mgignore(files)
+
+    if args.command == "revert":
+        hash = args.hash
+        message = args.message
+        history_commands.revert(hash, message)
+
+    if args.command == "reset":
+        hash = args.hash
+        history_commands.reset(hash)
     
 
 
