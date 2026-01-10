@@ -174,3 +174,11 @@ def get_directory_files_dictionary():
 
     return directory_files
 
+
+def make_blob_current(files_dictionary):
+    for filename, hash in files_dictionary.items():
+        blob_path = Path(".minigit") / "objects" / "blobs" / hash[:2] / hash
+        with open(blob_path, "rb") as f:
+            blob = f.read()
+        with open(filename, "wb") as f:
+            f.write(blob)

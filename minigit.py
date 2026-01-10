@@ -71,12 +71,16 @@ def main():
     merge_parser.add_argument("branch", help = "Branch to be merged into current branch")
     merge_parser.add_argument("-m", "--message", type = str, default = "Merge commit", help = "Merge commit message")
 
+    # minigitignore command
+    mgignore_parser = subparsers.add_parser("minigitignore", help = "Add a file to minigitignore")
+    mgignore_parser.add_argument("files", nargs = "+", help = "Files to add to the minigitignore")
+
     # Parse command-line arguments
     args = parser.parse_args()
 
     # Route to appropriate command handler
     if args.command == "init":
-        main_commands.create_minigit()
+        main_commands.init()
 
     if args.command == "add":
         main_commands.stage(args.files, "additions")
@@ -130,7 +134,9 @@ def main():
         merge_message = args.message
         branch_commands.merge(merge_branch_name = branch_name, message = merge_message)
 
-
+    if args.command == "minigitignore":
+        files = args.files
+        basic_commands.mgignore(files)
     
 
 

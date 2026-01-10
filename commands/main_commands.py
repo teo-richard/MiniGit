@@ -13,7 +13,7 @@ import utils
 from utils import Commit
 
 
-def create_minigit():
+def init():
     """
     Initialize a new MiniGit repository in the current directory.
 
@@ -41,6 +41,11 @@ def create_minigit():
     (minigit_dir / "objects" / "blobs").mkdir()  # Stores actual file content snapshots
     (minigit_dir / "refs" / "heads").mkdir(parents=True)  # Stores branch pointers (parents=True creates intermediate dirs)
     # Note: HEAD is created later as a file, not a directory
+
+    # Create empty .minigitignore file
+    minigitignore_path = ".minigitignore"
+    with open(minigitignore_path, "w") as f:
+        pass
 
     # Get the author using getpass to get the username
     username = getpass.getuser()

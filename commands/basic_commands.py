@@ -21,8 +21,10 @@ def empty():
     with open(".minigit/index", "wb") as f:
         pickle.dump(empty_dict, f)
 
-def minigitignore():
-    pass
+def mgignore(files):
+    filelist = utils.files_to_list(files)
+    with open(".minigitignore", 'w') as f:
+        f.write('\n'.join(filelist))
 
 def empty_file(files):
     """
