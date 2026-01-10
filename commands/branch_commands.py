@@ -28,11 +28,7 @@ def checkout_commit(checkout_hash):
         For branch checkout, use branch_switch() instead to maintain an attached HEAD.
     """
     # Load the commit object from the objects database
-    # Commits are stored in subdirectories named by first 2 chars of hash
-    commit_path = Path(".minigit") / "objects" / "commits" / checkout_hash[:2] / checkout_hash
-
-    with open(commit_path, "rb") as f:
-        commit_object = pickle.load(f)
+    commit_object = utils.get_commit(checkout_hash)
 
     # Extract the file mappings (filename -> blob hash) from the commit
     commit_files = commit_object.files
@@ -272,9 +268,7 @@ def merge(merge_branch_name, message):
     merge_branch_path = Path(".minigit") / "refs" / "heads" / merge_branch_name
     with open(merge_branch_path, "r") as f:
         merge_branch_hash = f.read()
-    merge_commit_object_path = Path(".minigit") / "objects" / "commits" / merge_branch_hash[:2] / merge_branch_hash
-    with open(merge_commit_object_path, "rb") as f:
-        merge_commit_object = pickle.load(f)
+    merge_commit_object = utils.get_commit(merge_branch_hash)
     merge_commit_files = merge_commit_object.files  # {filename: blob_hash}
 
     # Find the common ancestor commit for three-way merge

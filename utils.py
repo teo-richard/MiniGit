@@ -182,3 +182,13 @@ def make_blob_current(files_dictionary):
             blob = f.read()
         with open(filename, "wb") as f:
             f.write(blob)
+
+def get_commit(hash):
+
+    # Load the previous commit to see what files were tracked
+    # Commits are stored in subdirectories using first 2 chars of hash for organization
+    path_to_commit = Path(".minigit") / "objects" / "commits" / hash[:2] / hash
+    with open(path_to_commit, "rb") as f:
+        prev_commit_obj = pickle.load(f)
+    
+    return prev_commit_obj

@@ -84,16 +84,10 @@ def status():
     staging_area_additions = staging_area["additions"]  # dictionary {file name : hash}
     staging_area_removals = staging_area["removals"]  # list [file name, file name, ...]
 
-    # Get HEAD information to find most recent commit
-    # head_tuple contains: (detached, branch_path, branch_name, branch_hash, commit_hash)
     head_tuple = utils.check_head()
-    prev_commit_hash = head_tuple[4]  # Hash of the most recent commit
+    prev_commit_hash = head_tuple[4] # Hash of previous commit
 
-    # Load the previous commit to see what files were tracked
-    # Commits are stored in subdirectories using first 2 chars of hash for organization
-    path_to_commit = Path(".minigit") / "objects" / "commits" / prev_commit_hash[:2] / prev_commit_hash
-    with open(path_to_commit, "rb") as f:
-        prev_commit_obj = pickle.load(f)
+    prev_commit_obj = utils.get_commit(prev_commit_hash)
     prev_commit_files = prev_commit_obj.files  # Dictionary {filename: hash} of files in last commit
 
     # Categorize files by comparing working directory, staging area, and previous commit
@@ -173,11 +167,8 @@ def log():
     head_detached = head_tuple[0]  # Whether HEAD is detached
 
     # Load the most recent commit object
-    # Commits are stored in subdirectories using first 2 chars of hash
-    commit_path = Path(".minigit") / "objects" / "commits" / tip_hash[:2] / tip_hash
-    with open(commit_path, "rb") as f:
-        commit = pickle.load(f)
-
+    commit = utils.get_commit(tip_hash)
+    
     # Display appropriate message based on HEAD state
     if head_detached:
         print(f"\nHead is detached. Log walks backwards from {tip_hash} to initial commit.\n")

@@ -205,9 +205,7 @@ def commit(commit_message):
 
     # Construct the path to the previous commit object
     # Commits are stored in subdirectories based on first 2 chars of hash
-    previous_commit_object_path = Path(".minigit") / "objects" / "commits" / prev_commit_hash[:2] / prev_commit_hash
-    with open(previous_commit_object_path, "rb") as f:
-        previous_commit_object = pickle.load(f)
+    previous_commit_object = utils.get_commit(prev_commit_hash)
 
     # Extract the file tracking dictionary from the parent commit
     # This shows all files that existed in the previous commit
