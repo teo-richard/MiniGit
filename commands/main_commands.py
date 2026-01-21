@@ -11,6 +11,7 @@ import hashlib
 import getpass
 import utils
 from utils import Commit
+import os
 
 
 def init():
@@ -103,7 +104,7 @@ def init():
     print("Initialized MiniGit repository. Go ham.")
 
 
-def stage(files, type):
+def stage(input, type):
     """
     Add files to or remove files from the staging area.
 
@@ -117,8 +118,22 @@ def stage(files, type):
     # Normalize input to a list for consistent processing
     # Allows function to accept both single file (str) and multiple files (list)
     # Refactored to use utility function for code reuse
+
+    # Checking if any or all of the files are actually subdirectories, not truly files
+    filelist = []
+    for file in input:
+        p = Path(file)
+        if os.path.isdir(p):
+            subdir_files = utils.get_directory_files_dictionary(p)
+            for k in subdir_files.keys():
+                filelist.append(k)
+        else:
+            if not utils.check_ignore(file):
+                filelist.append(file)
+
+    files = list(dict.fromkeys(filelist))
+
     index_file = Path(".minigit") / "index"
-    filelist = utils.files_to_list(files)
 
     # Load the current staging area from the index file
     # The index contains: {"additions": {filename: hash}, "removals": [filename]}
@@ -126,7 +141,7 @@ def stage(files, type):
         staging = pickle.load(f)
 
     # Process each file to be staged
-    for filename in filelist:
+    for filename in files:
         filepath = Path(filename)
 
         # Check if the file exists before trying to stage it

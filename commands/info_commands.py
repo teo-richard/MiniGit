@@ -70,12 +70,7 @@ def status():
     """
     # Get dictionary of all files in working directory with their hashes
     # This has been refactored into a utility function to avoid code duplication
-    directory_files_all = utils.get_directory_files_dictionary()
-    with open(".minigitignore", "r") as f:
-        ignore_files = [line.strip() for line in f]
-    
-    directory_files = {k: v for k, v in directory_files_all.items() if k not in ignore_files}
-
+    directory_files_all = utils.get_directory_files_dictionary(".")
 
     # Load the staging area (index) to see what's been staged for next commit
     with open(".minigit/index", "rb") as f:

@@ -30,8 +30,8 @@ def main():
 
     # Add files to staging area command
     add_parser = subparsers.add_parser("add", help = "Add to staging area to be committe")
-    remove_parser = subparsers.add_parser("remove", help = "Add to staging area to be removed from repository.")
     add_parser.add_argument("files", nargs = "+", help = "Files to add to be comitted")
+    remove_parser = subparsers.add_parser("remove", help = "Add to staging area to be removed from repository.")
     remove_parser.add_argument("files", nargs = "+", help = "Files to add to be removed")
 
     # Empty staging area command

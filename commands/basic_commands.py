@@ -22,6 +22,18 @@ def empty():
         pickle.dump(empty_dict, f)
 
 def mgignore(files):
+    """
+    Add file patterns to the .minigitignore file.
+
+    Writes the specified file patterns to .minigitignore, which determines
+    which files should be excluded from tracking.
+
+    Args:
+        files: Single filename/pattern (str) or list of filenames/patterns to ignore
+
+    Note:
+        This overwrites the existing .minigitignore content rather than appending.
+    """
     filelist = utils.files_to_list(files)
     with open(".minigitignore", 'w') as f:
         f.write('\n'.join(filelist))

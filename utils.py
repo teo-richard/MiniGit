@@ -7,6 +7,7 @@ from pathlib import Path
 import pickle
 import hashlib
 import os
+import fnmatch
 
 # Commit class represents a snapshot of the repository at a point in time
 class Commit:
@@ -28,13 +29,25 @@ class Commit:
         self.timestamp = timestamp if timestamp is not None else datetime.now() 
 
 def write_files_from_dictionary(file_dictionary):
-        for filename, hash in file_dictionary.items():
-            blob_path = Path(".minigit") / "objects" / "blobs" / hash[:2] / hash
-            with open(blob_path, "rb") as f:
-                filecontent = f.read()
-            filepath = Path(filename)
-            with open(filepath, "wb") as f:
-                f.write(filecontent)
+    """
+    Restore files to the working directory from their blob storage.
+
+    Takes a dictionary mapping filenames to blob hashes and writes each file's
+    content from the blob storage back to the working directory.
+
+    Args:
+        file_dictionary: Dictionary mapping {filename: blob_hash}
+    """
+    for filename, hash in file_dictionary.items():
+        # Construct path to the blob using the hash-based directory structure
+        blob_path = Path(".minigit") / "objects" / "blobs" / hash[:2] / hash
+        # Read the blob content (original file content)
+        with open(blob_path, "rb") as f:
+            filecontent = f.read()
+        # Write the content back to the working directory
+        filepath = Path(filename)
+        with open(filepath, "wb") as f:
+            f.write(filecontent)
 
 
 
@@ -101,46 +114,62 @@ def files_to_list(files):
 
 def check_ignore(filepath):
     """
-    Check if a file path should be ignored by MiniGit.
+    Check if a file should be ignored based on .minigitignore patterns.
 
-    Ignores:
-    - Python cache files (__pycache__, .pyc)
-    - Virtual environments (venv/)
-    - Git repositories (.git, .minigit)
-    - System files (.DS_Store)
-    - Hidden files/directories (starting with .)
+    Uses fnmatch for glob-style pattern matching. Supports:
+    - Exact filenames (e.g., "secret.txt")
+    - Wildcard patterns (e.g., "*.log", "temp_*")
+    - Directory patterns ending with "/" (e.g., "build/")
+    - Comments in .minigitignore starting with "#"
 
     Args:
-        filepath: Path to check
+        filepath: The file path to check against ignore patterns
 
     Returns:
-        bool: True if file should be ignored, False otherwise
+        bool: True if the file should be ignored, False otherwise
     """
-    # List of patterns to ignore
-    ignore_patterns = [
-        '__pycache__',
-        '.pyc',
-        'venv/',
-        '.git',
-        '.minigit',
-        '.DS_Store',
+    # Built-in patterns that are always ignored (MiniGit's internal files)
+    builtin_patterns = [
+        ".minigit/",
+        ".minigitignore"
     ]
+    with open(".minigitignore", "r") as f:
+        mgignore = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
 
-    # Check if any ignore pattern is in the filepath
+    # Combine user patterns with built-in patterns
+    ignore_patterns = mgignore + builtin_patterns
+
+    # Check each component of the path against ignore patterns
+    # This allows patterns like "node_modules" to match "src/node_modules/file.js"
+    fileparts = filepath.split("/")
+    for part in fileparts:
+        for pattern in ignore_patterns:
+            ignore = fnmatch.fnmatch(part, pattern)
+            if ignore:
+                return True
+            else:
+                continue
+    # Check the full filepath against patterns
     for pattern in ignore_patterns:
-        if pattern in filepath:
-            return True
-
-    # Also ignore any hidden files/directories (starting with .)
-    parts = filepath.split(os.sep)
-    if any(part.startswith(".") and part != "." for part in parts):
-        return True
-
+            # Directory patterns (ending with /) match paths that start with the pattern
+            if pattern.endswith("/"):
+                if filepath.startswith(pattern):
+                    return True
+            else:
+                ignore = fnmatch.fnmatch(filepath, pattern)
+                if ignore:
+                    return True
+                else:
+                    continue
+    
     return False
 
-def get_directory_files_dictionary():
+
+    
+
+def get_directory_files_dictionary(subdir):
     """
-    Create a dictionary mapping all non-ignored files to their SHA-1 hashes.
+    Create a dictionary mapping all non-ignored files to their SHA-1 hashes. (see check_ignore() function right above this)
 
     This function walks the entire working directory, filters out ignored files,
     and computes content hashes for tracking file changes.
@@ -153,7 +182,7 @@ def get_directory_files_dictionary():
 
     # Walk through all files in the working directory and compute their hashes
     # `dirs` is os.walk's internal list of dirs it will walk to in the starting folder
-    for root, dirs, files in os.walk("."):
+    for root, dirs, files in os.walk(subdir):
         for file in files:
             # Filter out directories that should be ignored (modifies dirs in-place)
             # This prevents os.walk from descending into ignored directories
@@ -176,34 +205,66 @@ def get_directory_files_dictionary():
 
 
 def make_blob_current(files_dictionary):
+    """
+    Restore files from blob storage to the working directory.
+
+    Similar to write_files_from_dictionary but used specifically during
+    checkout operations to make the working directory match a commit's state.
+
+    Args:
+        files_dictionary: Dictionary mapping {filename: blob_hash}
+    """
     for filename, hash in files_dictionary.items():
+        # Construct path to blob using hash-based directory structure
         blob_path = Path(".minigit") / "objects" / "blobs" / hash[:2] / hash
+        # Read blob content
         with open(blob_path, "rb") as f:
             blob = f.read()
+        # Write to working directory
         with open(filename, "wb") as f:
             f.write(blob)
 
 def get_commit(hash):
+    """
+    Load and return a commit object from the objects database.
 
-    # Load the previous commit to see what files were tracked
+    Args:
+        hash: The SHA-1 hash of the commit to retrieve
+
+    Returns:
+        Commit: The deserialized Commit object
+    """
     # Commits are stored in subdirectories using first 2 chars of hash for organization
     path_to_commit = Path(".minigit") / "objects" / "commits" / hash[:2] / hash
     with open(path_to_commit, "rb") as f:
         prev_commit_obj = pickle.load(f)
-    
+
     return prev_commit_obj
 
 
 def get_old_commit_state(hash, tracked_files):
+    """
+    Restore the working directory to match a specific commit's state.
+
+    This function is used during checkout/revert operations to make the
+    working directory match a historical commit. It restores files from
+    the commit and removes files that shouldn't exist at that point.
+
+    Args:
+        hash: The SHA-1 hash of the commit to restore
+        tracked_files: Dictionary of currently tracked files {filename: hash}
+                      Used to determine which files need to be deleted
+    """
     # Load the commit object from the objects database
     commit_object = get_commit(hash)
 
     # Extract the file mappings (filename -> blob hash) from the commit
     commit_files = commit_object.files
+    # Restore all files from the commit to the working directory
     make_blob_current(commit_files)
 
-
-    # Delete the files that are being tracked but aren't in the commit you are doing checkout to
+    # Delete files that are currently tracked but don't exist in the target commit
+    # This ensures the working directory exactly matches the commit state
     delete_files = [i for i in tracked_files.keys() if i not in commit_files.keys()]
     for file in delete_files:
         if os.path.exists(file):

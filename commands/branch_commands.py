@@ -201,11 +201,26 @@ def branch_list():
 
 
 def find_common_ancestor(commit1, commit2):
+    """
+    Find the most recent common ancestor of two commits using BFS.
+
+    This is used during merge operations to implement three-way merge.
+    The common ancestor is the point where two branches diverged.
+
+    Args:
+        commit1: First Commit object (typically the current branch tip)
+        commit2: Second Commit object (typically the merge branch tip)
+
+    Returns:
+        Commit: The common ancestor Commit object
+    """
+    # Set to track all ancestors of commit1
     commit1_ancestors = set()
 
+    # BFS queue starting from commit1's parent
     queue = [commit1.parent[0]]
 
-    # Collect all ancestors of commit 1
+    # Collect all ancestors of commit1 by walking backwards through history
     while queue:
         current = queue.pop(0)
         if current in commit1_ancestors:
@@ -221,9 +236,8 @@ def find_common_ancestor(commit1, commit2):
         else:
             break
 
-
-
-    # Walk backwards in commit 2 to find the first common ancestor
+    # Walk backwards from commit2 to find the first hash that exists in commit1's ancestors
+    # The first match is the most recent common ancestor
     queue = [commit2.parent[0]]
     while queue:
         current = queue.pop(0)

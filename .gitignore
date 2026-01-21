@@ -5,3 +5,4 @@ testing/
 venv/
 .claude
 notes.ipynb
+.minigitignore

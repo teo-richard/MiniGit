@@ -4,6 +4,6 @@ This project is meant to be a slightly more complex version of the CS61B project
 
 This `README.md` file hopefully will be updated periodically as I progress throughout the project.  
 
-So far, I have implemented various functions including: init, staging, commit, status, log, commit checkout, merge, branching functions, and revert. Some of these functions do not have full functionality yet and are a little rudimentary right now. I have not yet tested in-depth for edge cases. My next goals are to fix up the staging function a bit, add a reset function, and improve the `.minigitignore` functionality. I also need to update the commit checkout function and want to add a wildcard for adding files to the staging area that works with the `.minigitignore`. 
+So far, I have implemented various functions including: init, staging, commit, status, log, commit checkout, merge, branching functions, and revert. I have not yet tested in-depth for edge cases. I have also improved my filters for ignoring files in `.minigitignore` and fixed up the `stage()` function to work with this. Next, I'd like to implement the `reset()` function and add a global commit log.
 
 Also in the spirit of transparency, note that all the docstrings and most of the comments in my code are created by Claude Code. However, since this is a learning project, all the code itself is mine, believe it or not! I hope you can forgive me for taking a shortcut with the commenting though...
