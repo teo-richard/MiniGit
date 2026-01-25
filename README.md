@@ -6,4 +6,4 @@ This `README.md` file hopefully will be updated periodically as I progress throu
 
 So far, I have implemented various functions including: init, staging, commit, status, log, commit checkout, merge, branching functions, and revert. I have not yet tested in-depth for edge cases. I have also improved my filters for ignoring files in `.minigitignore` and fixed up the `stage()` function to work with this. Next, I'd like to implement the `reset()` function and add a global commit log.
 
-Also in the spirit of transparency, note that all the docstrings and most of the comments in my code are created by Claude Code. However, since this is a learning project, all the code itself is mine, believe it or not! I hope you can forgive me for taking a shortcut with the commenting though...
+Also in the spirit of transparency, note that all the docstrings and most of the comments in my code are created by Claude Code. However, since this is a learning project, all the code itself is mine, believe it or not! I hope you can forgive me for taking a shortcut with the commenting though... (But I read and manually approve every comment!)

@@ -224,6 +224,10 @@ def make_blob_current(files_dictionary):
         with open(filename, "wb") as f:
             f.write(blob)
 
+# Custom exception class
+class CommitNotFoundError(Exception):
+    pass
+
 def get_commit(hash):
     """
     Load and return a commit object from the objects database.
@@ -236,10 +240,13 @@ def get_commit(hash):
     """
     # Commits are stored in subdirectories using first 2 chars of hash for organization
     path_to_commit = Path(".minigit") / "objects" / "commits" / hash[:2] / hash
-    with open(path_to_commit, "rb") as f:
-        prev_commit_obj = pickle.load(f)
+    if path_to_commit.exists():
+        with open(path_to_commit, "rb") as f:
+            prev_commit_obj = pickle.load(f)
 
-    return prev_commit_obj
+        return prev_commit_obj
+    else:
+        raise CommitNotFoundError(f"Error: Commit {hash} not found. ")
 
 
 def get_old_commit_state(hash, tracked_files):
@@ -255,9 +262,7 @@ def get_old_commit_state(hash, tracked_files):
         tracked_files: Dictionary of currently tracked files {filename: hash}
                       Used to determine which files need to be deleted
     """
-    # Load the commit object from the objects database
     commit_object = get_commit(hash)
-
     # Extract the file mappings (filename -> blob hash) from the commit
     commit_files = commit_object.files
     # Restore all files from the commit to the working directory
@@ -269,3 +274,12 @@ def get_old_commit_state(hash, tracked_files):
     for file in delete_files:
         if os.path.exists(file):
             os.remove(file)
+
+
+def get_tracked_files():
+    # Get the files currently being tracked
+    head_tuple = check_head()
+    head_hash = head_tuple[4]
+    previous_commit_object = get_commit(head_hash)
+    tracked_files = previous_commit_object.files
+    return tracked_files

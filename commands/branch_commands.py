@@ -9,6 +9,7 @@ import pickle
 import hashlib
 import getpass
 import utils
+from utils import CommitNotFoundError
 import os
 from utils import Commit
 
@@ -29,10 +30,7 @@ def checkout_commit(checkout_hash):
     """
 
     # Get the files currently being tracked
-    head_tuple = utils.check_head()
-    head_hash = head_tuple[4]
-    previous_commit_object = utils.get_commit(head_hash)
-    tracked_files = previous_commit_object.files
+    tracked_files = utils.get_tracked_files()
 
     # Check if the files have been modified
     checkout_good = True
@@ -55,12 +53,15 @@ def checkout_commit(checkout_hash):
             break
 
     if checkout_good == True:
-        utils.get_old_commit_state(checkout_hash, tracked_files)
-        
-        # Update HEAD to point directly to the commit hash (detached HEAD state)
-        # This means HEAD is not attached to any branch
-        with open(".minigit/HEAD", "w") as f:
-            f.write(checkout_hash)
+        try:
+            utils.get_old_commit_state(checkout_hash, tracked_files)
+            
+            # Update HEAD to point directly to the commit hash (detached HEAD state)
+            # This means HEAD is not attached to any branch
+            with open(".minigit/HEAD", "w") as f:
+                f.write(checkout_hash)
+        except CommitNotFoundError as e:
+            print(e)
 
 
 def branch_switch(branch_name):

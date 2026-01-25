@@ -7,7 +7,7 @@ import pathlib as Path
 import pickle
 import getpass
 import utils
-from utils import Commit
+from utils import Commit, CommitNotFoundError
 import hashlib
 from commands import main_commands, basic_commands
 
@@ -29,43 +29,65 @@ def revert(hash, message):
         2. Stages all files from the target commit
         3. Creates a new commit with the reverted state
     """
-    head_tuple = utils.check_head()
-    head_hash = head_tuple[4]
-    tracked_files = utils.get_commit(head_hash).files
-
     # Restore working directory to match the target commit
-    utils.get_old_commit_state(hash, tracked_files)
 
-    # Load the target commit to get its file list
-    revert_commit_object = utils.get_commit(hash)
-    revert_commit_files = revert_commit_object.files
+    try:
+        tracked_files = utils.get_tracked_files() # Getting files in the most recent commit
+        utils.get_old_commit_state(hash, tracked_files) # Going back to the state of the user-inputted commit
 
-    # Clear the staging area before staging the reverted files
-    basic_commands.empty()
+        # Load the target commit to get its file list
+        revert_commit_object = utils.get_commit(hash)
+        revert_commit_files = revert_commit_object.files
 
-    # Stage all files from the target commit
-    with open(".minigit/index", "rb") as f:
-        staging = pickle.load(f)
+        # Clear the staging area before staging the reverted files
+        basic_commands.empty()
 
-    for file, hash in revert_commit_files.items():
-        staging["additions"][file] = hash
+        # Stage all files from the target commit
+        with open(".minigit/index", "rb") as f:
+            staging = pickle.load(f)
 
-    with open(".minigit/index", "wb") as f:
-        pickle.dump(staging, f)
+        for file, hash in revert_commit_files.items():
+            staging["additions"][file] = hash
 
-    # Create the revert commit with default message if none provided
-    if message == None:
-        message = f"Reverting to commit {hash}."
-    main_commands.commit(message)
+        with open(".minigit/index", "wb") as f:
+            pickle.dump(staging, f)
+
+        # Create the revert commit with default message if none provided
+        if message == None:
+            message = f"Reverting to commit {hash}."
+        main_commands.commit(message)
+
+    except CommitNotFoundError as e:
+        print(e)
 
 
-def reset():
+def reset(hash):
     """
     Reset the repository to a previous commit, destroying history.
 
     WARNING: This is a destructive operation. Unlike revert, reset removes
     all commits after the target commit from history.
-
-    Not yet implemented.
     """
+    try:
+        # Get tracked files
+        tracked_files = utils.get_tracked_files()
+        # Put the wd in the state of the commit the user is resetting to
+        utils.get_old_commit_state(hash, tracked_files)
+
+        # Update the branch
+        head_tuple = utils.check_head()
+        head_detached = head_tuple[0]
+        if head_detached:
+            with open(".minigit/HEAD", "w") as f:
+                f.write(hash)
+            print("\nWarning: HEAD is still in detached state.\n")
+        else:
+            branch_path = head_tuple[3] # Path to the hash in the branch currently
+            with open(branch_path, "w") as f:
+                f.write(hash)
+    except CommitNotFoundError as e:
+        print(e)
+        
+def reset_hard():
+    
     pass
