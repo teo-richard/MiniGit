@@ -8,6 +8,7 @@ import pickle
 import hashlib
 import os
 import fnmatch
+from functools import wraps
 
 # Commit class represents a snapshot of the repository at a point in time
 class Commit:
@@ -292,3 +293,30 @@ def get_tracked_files():
     previous_commit_object = get_commit(head_hash)
     tracked_files = previous_commit_object.files
     return tracked_files
+
+
+def check_staging_area(func):
+    @wraps(func)
+    def check(*args, **kwargs):
+        _, staging_area_additions, staging_area_removals = get_staging_area()
+
+        if staging_area_additions or staging_area_removals:
+            if staging_area_additions:
+                print("\nWARNING: You have files in the staging area as additions:")
+                for i in staging_area_additions.keys():
+                    print(f"\t{i}")
+            if staging_area_removals:
+                print("\nWARNING: You have files in the staging area as removals:")
+                for i in staging_area_removals.keys():
+                    print(f"\t{i}")
+            while True:
+                user_input = input("\nWould you like to continue anyways? Y/N: ").lower()
+                if user_input in ("y", "yes", "yeah", "yeah baby"):
+                    break
+                elif user_input in ("n", "no", "no muchacho", "q", "quit"):
+                    return
+
+        return func(*args, **kwargs)
+        
+    return check
+        

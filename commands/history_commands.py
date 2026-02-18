@@ -11,6 +11,7 @@ from utils import Commit, CommitNotFoundError
 import hashlib
 from commands import main_commands, basic_commands
 
+@utils.check_staging_area
 def revert(hash, message):
     """
     Revert the repository to a previous commit's state by creating a new commit.
@@ -57,7 +58,7 @@ def revert(hash, message):
 
 
 
-
+@utils.check_staging_area
 def reset(hash, type):
     """
     Reset the repository to a previous commit, destroying history.
