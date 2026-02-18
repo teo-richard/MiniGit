@@ -50,6 +50,19 @@ def print_status(filelist: dict | list, message:str, color:str) -> bool:
             print(f"{color_code} {value} {key}{Style.RESET_ALL}")
 
 
+
+def get_unstaged_tracked_modified(directory_files, staging_area_additions, staging_area_removals, prev_commit_files):
+    all_staged_files = list(staging_area_additions.keys()) + staging_area_removals  # All files in the staging area
+    not_staged = {k: v for k, v in directory_files.items() if k not in all_staged_files}  # Files in working dir but not staged
+    tracked_not_staged = {k: v for k, v in not_staged.items() if k in prev_commit_files.keys()}  # Not staged but in previous commit
+
+    # All the k, v pairs in `tracked_not_staged.items()` come from your directory files
+    unmodified_tracked_not_staged = {k: v for k, v in tracked_not_staged.items() if prev_commit_files.get(k) == v}  # Hash unchanged
+    modified_tracked_not_staged = {k: v for k, v in tracked_not_staged.items() if prev_commit_files.get(k) != v}  # Hash changed
+
+    return unmodified_tracked_not_staged, modified_tracked_not_staged
+
+
 def status():
     """
     Display the current repository status.
@@ -70,14 +83,10 @@ def status():
     """
     # Get dictionary of all files in working directory with their hashes
     # This has been refactored into a utility function to avoid code duplication
-    directory_files_all = utils.get_directory_files_dictionary(".")
+    directory_files = utils.get_directory_files_dictionary(".")
 
     # Load the staging area (index) to see what's been staged for next commit
-    with open(".minigit/index", "rb") as f:
-        staging_area = pickle.load(f)
-
-    staging_area_additions = staging_area["additions"]  # dictionary {file name : hash}
-    staging_area_removals = staging_area["removals"]  # list [file name, file name, ...]
+    _, staging_area_additions, staging_area_removals = utils.get_staging_area()
 
     head_tuple = utils.check_head()
     prev_commit_hash = head_tuple[4] # Hash of previous commit
@@ -88,16 +97,14 @@ def status():
     # Categorize files by comparing working directory, staging area, and previous commit
     # This creates different file categories similar to `git status` output
 
-    # Step 1: Get files that are tracked but not currently staged
-    all_staged_files = list(staging_area["additions"].keys()) + staging_area["removals"]  # All files in the staging area
-    not_staged = {k: v for k, v in directory_files.items() if k not in all_staged_files}  # Files in working dir but not staged
-    tracked_not_staged = {k: v for k, v in not_staged.items() if k in prev_commit_files.keys()}  # Not staged but in previous commit
-
-    # Step 2: Separate tracked-not-staged files into unmodified and modified
-    # Compare current file hashes with hashes from the previous commit
-    # All the k, v pairs in `tracked_not_staged.items()` come from your directory files
-    unmodified_tracked_not_staged = {k: v for k, v in tracked_not_staged.items() if prev_commit_files.get(k) == v}  # Hash unchanged
-    modified_tracked_not_staged = {k: v for k, v in tracked_not_staged.items() if prev_commit_files.get(k) != v}  # Hash changed
+    # Step 1 and Step 2: 
+    # 1. Get files that are tracked but not currently staged
+    # 2. Separate tracked-not-staged files into unmodified and modified and compare current file hashes with hashes from the previous commit
+    unmodified_tracked_not_staged, modified_tracked_not_staged = get_unstaged_tracked_modified(
+        directory_files, 
+        staging_area_additions, 
+        staging_area_removals,
+        prev_commit_files)
 
     # Step 3: Find completely untracked files (never been committed or staged)
     not_tracked = {k: v for k, v in directory_files.items()
@@ -117,11 +124,11 @@ def status():
     else:
         print(f"\nHead attached to {branch_name} branch.")
 
-    print_status(staging_area["additions"],
+    print_status(staging_area_additions,
                  "Files in staging area to be added to the next commit:",
                  "green")
 
-    print_status(staging_area["removals"],
+    print_status(staging_area_removals,
                  "Files in staging area to be removed in the next commit:",
                  "blue")
 

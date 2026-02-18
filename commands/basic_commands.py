@@ -51,22 +51,21 @@ def empty_file(files):
     filelist = utils.files_to_list(files)
 
     # Load current staging area
-    with open(".minigit/index", "rb") as f:
-            staging = pickle.load(f)
+    staging_area, _, _ = utils.get_staging_area()
 
     # Process each file to unstage
     for file in filelist:
         # Check if file is staged for removal and remove it from that list
-        if file in staging["removals"]:
-            staging["removals"].remove(file)
+        if file in staging_area["removals"]:
+            staging_area["removals"].remove(file)
         else:
             # Otherwise try to remove from additions, catching case where file isn't staged
             try:
-                staging["additions"].pop(file)
+                staging_area["additions"].pop(file)
             except KeyError:
                 # Provide helpful error message if file isn't actually in staging area
                 print(f"Cannot remove {file} from staging area. Check if file is actually in staging area.")
 
         # Write updated staging area back to disk after each file
         with open(".minigit/index", "wb") as f:
-            pickle.dump(staging, f)
+            pickle.dump(staging_area, f)

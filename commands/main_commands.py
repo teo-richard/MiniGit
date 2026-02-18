@@ -209,13 +209,14 @@ def commit(commit_message):
     6. Updates HEAD to point to the new commit
     """
     # Load the current staging area to see what changes are ready to commit
-    with open(".minigit/index", "rb") as f:
-        staging_area = pickle.load(f)
+    staging_area, staging_area_additions, staging_area_removals = utils.get_staging_area()
 
     # Update the branch to point to the new commit if head is not detached
     # Get branch from head
     head_tuple = utils.check_head()
     prev_commit_hash = head_tuple[4]
+    branch_path = head_tuple[3]
+    branch_name = head_tuple[2]
 
 
     # Construct the path to the previous commit object
@@ -228,35 +229,37 @@ def commit(commit_message):
     previous_commit_filenames = list(previous_commit_files.keys())  # Extract just the filenames
 
     # Extract files from staging area that are being added/modified
-    staging_area_additions = staging_area["additions"]  # Dictionary of {filename: file_hash}
     staging_area_additions_filenames = list(staging_area_additions.keys())  # Extract just the filenames
 
     # Find files that exist in the previous commit but NOT in staging area
     # These files haven't been modified, so they should carry over to the new commit
     exists_previous_commit_only = [x for x in previous_commit_filenames if x not in staging_area_additions_filenames]
 
-    # Create a dictionary of files to carry over from previous commit
-    # These are unchanged files that need to persist in the new commit
-    files_brought_over = {k: v for k, v in previous_commit_files.items() if k in exists_previous_commit_only}
+
+    # 1. Create a dictionary of files to carry over from previous commit
+    # 2. These are unchanged files that need to persist in the new commit
+    # 3. For each file in exists_previous_commit_only, check that it exists and state a warning message about it
+    files_brought_over = {}
+    for k, v in previous_commit_files.items():
+        if k in exists_previous_commit_only:
+            if not Path(k).exists():
+                print(f"\n\tWarning: cannot find path to {k} but this file was not staged for removal.")
+                print(f"\t\tIt will persist in this commit. To fix this, use minigit remove and then create a new commit.\n")
+            files_brought_over[k] = v
+
 
     # Merge the carried-over files with the staging area additions
     # This creates the complete file list for the new commit
-    new_staging_area_additions = staging_area_additions
+    new_staging_area_additions = staging_area_additions.copy()
     for file in files_brought_over:
         new_staging_area_additions[file] = files_brought_over[file]
 
-    # Update the staging area additions with the merged file list
-    staging_area["additions"] = new_staging_area_additions
 
     # Get a final staging area where we have:
     #   all the additions (files changed and put in staging area by user and unchanged files that must persist)
     #   take out the files in removals that the user wants to not include in this commit
-    final_staging_area = {k: v for k, v in staging_area["additions"].items() if k not in staging_area["removals"]}
+    final_files_in_commit = {k: v for k, v in new_staging_area_additions.items() if k not in staging_area_removals}
 
-
-    # Writing the updated staging area dictionary to index
-    with open(".minigit/index", "wb") as f:
-        pickle.dump(staging_area, f)
 
     # Get username
     username = getpass.getuser()
@@ -266,7 +269,7 @@ def commit(commit_message):
         message = commit_message,
         author = username,
         parent = [prev_commit_hash],
-        files = final_staging_area
+        files = final_files_in_commit
     )
 
     new_commit_bytes = pickle.dumps(new_commit)
@@ -283,10 +286,6 @@ def commit(commit_message):
     
     # Update the branch to point to the new commit if head is not detached
     
-    head_tuple = utils.check_head()
-    branch_path = head_tuple[3]
-    branch_name = head_tuple[2]
-    head = head_tuple[1]
     if head_tuple[0] == True:
         print(f"\nNote: head is detached at {new_commit_hash}.")
         with open(".minigit/HEAD", "w") as f:
@@ -298,14 +297,16 @@ def commit(commit_message):
         new_head = f"ref: refs/heads/{branch_name}"
         with open(".minigit/HEAD", "w") as f:
             f.write(new_head)
-        print(f"\nHead points to {head} and you are on branch {branch_name}.")
+
+        
+        print(f"\nHead points to {branch_name}.")
     
 
 
 
     print("Files committed:")
     # Update the blobs
-    for filename, hash in final_staging_area.items():
+    for filename, hash in staging_area_additions.items():
         # Get the blob
         with open(filename, "rb") as f:
             blob = f.read()

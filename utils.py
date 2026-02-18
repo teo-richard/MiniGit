@@ -275,6 +275,15 @@ def get_old_commit_state(hash, tracked_files):
         if os.path.exists(file):
             os.remove(file)
 
+def get_staging_area():
+    with open(".minigit/index", "rb") as f:
+        staging_area = pickle.load(f)
+
+    staging_area_additions = staging_area["additions"]
+    staging_area_removals = staging_area["removals"]
+
+    return staging_area, staging_area_additions, staging_area_removals
+
 
 def get_tracked_files():
     # Get the files currently being tracked

@@ -5,7 +5,8 @@ Entry point for the MiniGit CLI application.
 
 from commands import main_commands, info_commands, basic_commands, branch_commands, history_commands
 import argparse
-
+import utils
+from utils import CommitNotFoundError
 
 def main():
     """
@@ -78,14 +79,24 @@ def main():
     # Revert command
     revert_parser = subparsers.add_parser("revert", help = "Revert to earlier commit. ")
     revert_parser.add_argument("hash", help = "The commit to revert to.")
-    revert_parser.add_argument("-m", "--m", type = str, default = None, help = "Revert commit message.")
+    revert_parser.add_argument("-m", "--message", type = str, default = None, help = "Revert commit message.")
 
     # Reset command
-    reset_parser = subparsers.add_parser("Reset", help = "Reset to earlier commit. Destroys history.")
+    reset_parser = subparsers.add_parser("reset", help = "Reset to earlier commit. Destroys history.")
+    reset_parser.add_argument("--hard", action = "store_true", help = "Hard reset")
+    reset_parser.add_argument("--soft", action = "store_true", help = "soft reset")
     reset_parser.add_argument("hash", help = "The commit to reset to.")
 
     # Parse command-line arguments
     args = parser.parse_args()
+
+    # If necessary, check if commit is valid
+    if args.command in ("revert", "reset", "checkout"):
+        try:
+            utils.get_commit(args.hash)
+        except CommitNotFoundError as e:
+            print(e)
+            return
 
     # Route to appropriate command handler
     if args.command == "init":
@@ -154,7 +165,13 @@ def main():
 
     if args.command == "reset":
         hash = args.hash
-        history_commands.reset(hash)
+        if args.hard:
+            history_commands.reset(hash, "hard")
+        elif args.soft:
+            history_commands.reset(hash, "soft")
+        else:
+            print("Specify a flaggy mc flag flag \"--hard\" or \"--soft\" please!")
+
     
 
 
