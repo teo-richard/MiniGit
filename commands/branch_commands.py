@@ -60,6 +60,11 @@ def checkout_commit(checkout_hash):
         with open(".minigit/HEAD", "w") as f:
             f.write(checkout_hash)
 
+        print("\nWARNING. You are in a DETACHED head state." \
+            "To create a new branch, use 'minigit switch -c <branch_name>'." \
+            "\nThen, you may commit new changes with 'minigit commit -m <commite message>'." \
+            "\nOr, to get back to an existing branch, use 'minigit switch <branch name>'.")
+
 
 def branch_switch(branch_name):
     """
