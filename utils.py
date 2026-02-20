@@ -243,9 +243,9 @@ def get_commit(hash):
     path_to_commit = Path(".minigit") / "objects" / "commits" / hash[:2] / hash
     if path_to_commit.exists():
         with open(path_to_commit, "rb") as f:
-            prev_commit_obj = pickle.load(f)
+            commit_obj = pickle.load(f)
 
-        return prev_commit_obj
+        return commit_obj
     else:
         raise CommitNotFoundError(f"Error: Commit {hash} not found. ")
 
@@ -295,28 +295,73 @@ def get_tracked_files():
     return tracked_files
 
 
-def check_staging_area(func):
+def check_staging_area():
+    _, staging_area_additions, staging_area_removals = get_staging_area()
+
+    if staging_area_additions or staging_area_removals:
+        if staging_area_additions:
+            print("\nWARNING: You have files in the staging area as additions:")
+            for i in staging_area_additions.keys():
+                print(f"\t{i}")
+        if staging_area_removals:
+            print("\nWARNING: You have files in the staging area as removals:")
+            for i in staging_area_removals.keys():
+                print(f"\t{i}")
+
+
+
+def get_unstaged_tracked_modified(directory_files, staging_area_additions, staging_area_removals, prev_commit_files):
+    all_staged_files = list(staging_area_additions.keys()) + staging_area_removals  # All files in the staging area
+    not_staged = {k: v for k, v in directory_files.items() if k not in all_staged_files}  # Files in working dir but not staged
+    tracked_not_staged = {k: v for k, v in not_staged.items() if k in prev_commit_files.keys()}  # Not staged but in previous commit
+
+    # All the k, v pairs in `tracked_not_staged.items()` come from your directory files
+    unmodified_tracked_not_staged = {k: v for k, v in tracked_not_staged.items() if prev_commit_files.get(k) == v}  # Hash unchanged
+    modified_tracked_not_staged = {k: v for k, v in tracked_not_staged.items() if prev_commit_files.get(k) != v}  # Hash changed
+
+    return unmodified_tracked_not_staged, modified_tracked_not_staged
+
+def check_uncommitted_changes(func):
     @wraps(func)
     def check(*args, **kwargs):
         _, staging_area_additions, staging_area_removals = get_staging_area()
 
-        if staging_area_additions or staging_area_removals:
+        directory_files = get_directory_files_dictionary(".")
+        prev_commit_hash = check_head()[4]
+        prev_commit_files = get_commit(prev_commit_hash).files
+
+        _, modified_tracked_not_staged = get_unstaged_tracked_modified(
+            directory_files, 
+            staging_area_additions, 
+            staging_area_removals, 
+            prev_commit_files
+        )
+
+        if staging_area_additions or staging_area_removals or modified_tracked_not_staged:
+            print("\nWARNING: You have unstaged files that have uncommitted changes. ")
             if staging_area_additions:
-                print("\nWARNING: You have files in the staging area as additions:")
+                print("\tFiles in staging area as additions:")
                 for i in staging_area_additions.keys():
                     print(f"\t{i}")
             if staging_area_removals:
-                print("\nWARNING: You have files in the staging area as removals:")
-                for i in staging_area_removals.keys():
+                print("\tFiles in staging area as removals")
+                for i in staging_area_removals:
                     print(f"\t{i}")
+            if modified_tracked_not_staged:
+                print("\tFiles that are unstaged but have uncommitted changes:")
+                for i in modified_tracked_not_staged.keys():
+                    print(f"\t{i}")
+            
             while True:
-                user_input = input("\nWould you like to continue anyways? Y/N: ").lower()
-                if user_input in ("y", "yes", "yeah", "yeah baby"):
+                user_input = input("Would you like to continue anyways? Y/N: ").lower()
+                if user_input in ("y", "yes", "yeah baby", "sure honey buns"):
                     break
-                elif user_input in ("n", "no", "no muchacho", "q", "quit"):
+                elif user_input in ("n", "no", "no muchacho", "nuh uh"):
                     return
-
-        return func(*args, **kwargs)
+                else:
+                    print(f"Input {user_input} not recognized.\n")
+                    continue
+            
+        func(*args, **kwargs)
         
     return check
-        

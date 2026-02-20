@@ -51,16 +51,7 @@ def print_status(filelist: dict | list, message:str, color:str) -> bool:
 
 
 
-def get_unstaged_tracked_modified(directory_files, staging_area_additions, staging_area_removals, prev_commit_files):
-    all_staged_files = list(staging_area_additions.keys()) + staging_area_removals  # All files in the staging area
-    not_staged = {k: v for k, v in directory_files.items() if k not in all_staged_files}  # Files in working dir but not staged
-    tracked_not_staged = {k: v for k, v in not_staged.items() if k in prev_commit_files.keys()}  # Not staged but in previous commit
 
-    # All the k, v pairs in `tracked_not_staged.items()` come from your directory files
-    unmodified_tracked_not_staged = {k: v for k, v in tracked_not_staged.items() if prev_commit_files.get(k) == v}  # Hash unchanged
-    modified_tracked_not_staged = {k: v for k, v in tracked_not_staged.items() if prev_commit_files.get(k) != v}  # Hash changed
-
-    return unmodified_tracked_not_staged, modified_tracked_not_staged
 
 
 def status():
@@ -100,7 +91,7 @@ def status():
     # Step 1 and Step 2: 
     # 1. Get files that are tracked but not currently staged
     # 2. Separate tracked-not-staged files into unmodified and modified and compare current file hashes with hashes from the previous commit
-    unmodified_tracked_not_staged, modified_tracked_not_staged = get_unstaged_tracked_modified(
+    unmodified_tracked_not_staged, modified_tracked_not_staged = utils.get_unstaged_tracked_modified(
         directory_files, 
         staging_area_additions, 
         staging_area_removals,
