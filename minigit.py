@@ -87,6 +87,9 @@ def main():
     reset_parser.add_argument("--soft", action = "store_true", help = "soft reset")
     reset_parser.add_argument("hash", help = "The commit to reset to.")
 
+    # Reflog command
+    reflog_parser = subparsers.add_parser("reflog", help = "List ALLLLLL your commits EVERRRRR.")
+
     # Parse command-line arguments
     args = parser.parse_args()
 
@@ -171,6 +174,9 @@ def main():
             history_commands.reset(hash, "soft")
         else:
             print("Specify a flaggy mc flag flag \"--hard\" or \"--soft\" please!")
+
+    if args.command == "reflog":
+        info_commands.reflog()
 
     
 

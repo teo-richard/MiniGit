@@ -137,6 +137,16 @@ def status():
 
     print("\nI hope you enjoyed this status update. I sure did!\n")
 
+def display_commit_details(commit):
+    print(f"{commit.timestamp.strftime("%Y-%m-%d %H:%M:%S")} \n")
+    print(f"Commit message: {commit.message}")
+    print(f"Author: {commit.author}")
+    print(f"Parent hash: {commit.parent}\n")
+
+    # Display all files in this commit with their hashes
+    print("Files:")
+    for k, v in commit.files.items():
+        print(f"{v} {k}")
 
 
 def log():
@@ -181,15 +191,7 @@ def log():
     # Continue until we reach the initial commit (which has no parent)
     while commit.parent != []:
         # Display commit details
-        print(f"{commit.timestamp.strftime("%Y-%m-%d %H:%M:%S")} \n")
-        print(f"Commit message: {commit.message}")
-        print(f"Author: {commit.author}")
-        print(f"Parent hash: {commit.parent}\n")
-
-        # Display all files in this commit with their hashes
-        print("Files:")
-        for k, v in commit.files.items():
-            print(f"{v} {k}")
+        display_commit_details(commit)
 
         # Move to the parent commit (going backwards in history)
         next_commit_hash = commit.parent[0]  # Get hash of parent commit
@@ -266,3 +268,31 @@ def amend(message):
 
     with open(".minigit/HEAD", "w") as f:
         f.write(head_content)
+
+
+def reflog():
+    commits_dir = Path(".minigit/objects/commits")
+    hashes = {}
+    for prefix in os.listdir(commits_dir):
+        prefix_path = os.path.join(commits_dir, prefix) # Path to folder containing commit objects starting with some prefix
+        for filename in os.listdir(prefix_path):
+            commit_path = os.path.join(prefix_path, filename)
+            with open(commit_path, "rb") as f:
+                commit_obj = pickle.load(f)
+            commit_timestamp = commit_obj.timestamp
+            hashes[filename] = commit_timestamp
+
+    sorted_hashes = dict(sorted(hashes.items(), key = lambda x: (x[1] is None, x[1]), reverse=True))
+    
+    print("---------------------------")
+
+    for commit_hash in sorted_hashes:
+        commit_path = Path(f".minigit/objects/commits/{commit_hash[0:2]}/{commit_hash}")
+        with open(commit_path, "rb") as f:
+            commit_obj = pickle.load(f)
+
+        print(f"Commit hash: {commit_hash}")
+        display_commit_details(commit_obj)
+        print("---------------------------")
+
+        
