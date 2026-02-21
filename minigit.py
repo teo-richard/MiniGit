@@ -51,7 +51,7 @@ def main():
 
     # Log command
     log_parser = subparsers.add_parser("log", help = "Print a log of commits in this branch.")
-    log_parser.add_argument("--all", action="store-true", help = "Log of all commits accessible from branches")
+    log_parser.add_argument("--all", action="store_true", help = "Log of all commits accessible from branches")
 
     # Checkout command
     checkout_parser = subparsers.add_parser("checkout", help = "Check out a commit")
@@ -65,8 +65,8 @@ def main():
     
     # Branch list and delete commands
     branch_parser = subparsers.add_parser("branch", help = "List branches")
-    branch_parser.add_argument("-d", "--delete", action = "store_true", help = "Delete branch")
-    branch_parser.add_argument("branch", nargs = "?", default = None, help = "Branch to be removed")
+    branch_parser.add_argument("-d", "--delete", action = "store_true", help = "Remove reference to branch")
+    branch_parser.add_argument("branch", nargs = "*", default = None, help = "Branch to be removed")
 
     # Merge command
     merge_parser = subparsers.add_parser("merge", help = "Merge branches")
@@ -150,9 +150,8 @@ def main():
             branch_commands.branch_switch(branch_name = branch_name)
         
     if args.command == "branch":
-        if args.delete == True:
-            branch_name = args.branch
-            branch_commands.branch_delete(branch_name = branch_name)
+        if args.delete:
+            branch_commands.branch_delete(args.branch)
         else:
             branch_commands.branch_list()
 

@@ -131,7 +131,7 @@ def branch_create(branch_name):
         f.write(new_head)
     
 
-def branch_delete(branch_name):
+def remove_branch_ref(branch_name):
     """
     Delete a branch by removing its reference file.
 
@@ -201,6 +201,11 @@ def branch_list():
         # Print all branches with current branch marked
         for k, v in dict_to_print.items():
             print(f"{v} {k}")
+
+
+def branch_delete(user_input):
+    for branch in user_input:
+        remove_branch_ref(branch)
 
 
 def find_common_ancestor(commit1, commit2):
