@@ -205,19 +205,73 @@ def log():
         print(f"Commit hash: {next_commit_hash}")
 
     # Print the initial commit (has no parent, so wasn't printed in loop)
-    print(f"{commit.timestamp.strftime("%Y-%m-%d %H:%M:%S")} \n")
-    print(f"Commit message: {commit.message}")
-    print(f"Author: {commit.author}")
-    print(f"Parent hash: {commit.parent}\n")
-
-    # Display files in initial commit
-    print("Files:")
-    for k, v in commit.files.items():
-        print(f"{v} {k}")
+    display_commit_details(commit)
     print("---------------------------\n")
 
     print("Log end.\n")
 
+def log_all():
+    ref_path = Path(".minigit/refs/heads")
+
+    unique_commit_hashes = {}
+
+    for branch in os.listdir(ref_path):
+        branch_path = os.path.join(ref_path, branch)
+        with open(branch_path, "r") as f:
+            commit_hash = f.read()
+
+        commit = utils.get_commit(commit_hash)
+
+        while commit.parent != []:
+            if commit_hash not in unique_commit_hashes: # Is the hash of the commit in this iteration in unique_commit_hashes?
+                unique_commit_hashes[commit_hash] = commit.timestamp # If not, add to dictionary
+            
+            commit_hash = commit.parent[0] # Getting the hash of the commit for our next iteration in the loop
+            commit = utils.get_commit(commit_hash) # Getting the commit object
+        
+        # and put the initial commit in unique_commit_hashes
+        if commit_hash not in unique_commit_hashes:
+            unique_commit_hashes[commit_hash] = commit.timestamp
+
+    sorted_unique_commit_hashes = dict(sorted(unique_commit_hashes.items(), key = lambda x: (x[1] is None, x[1]), reverse=True))
+
+    print("---------------------------")
+    for commit_hash in sorted_unique_commit_hashes.keys():
+        commit_obj = utils.get_commit(commit_hash)
+        display_commit_details(commit_obj)
+    print("---------------------------")
+
+
+
+
+
+
+def reflog():
+    commits_dir = Path(".minigit/objects/commits")
+    hashes = {}
+    for prefix in os.listdir(commits_dir):
+        prefix_path = os.path.join(commits_dir, prefix) # Path to folder containing commit objects starting with some prefix
+        for filename in os.listdir(prefix_path):
+            commit_path = os.path.join(prefix_path, filename)
+            with open(commit_path, "rb") as f:
+                commit_obj = pickle.load(f)
+            commit_timestamp = commit_obj.timestamp
+            hashes[filename] = commit_timestamp
+
+    sorted_hashes = dict(sorted(hashes.items(), key = lambda x: (x[1] is None, x[1]), reverse=True))
+    
+    print("---------------------------")
+
+    for commit_hash in sorted_hashes:
+        commit_path = Path(f".minigit/objects/commits/{commit_hash[0:2]}/{commit_hash}")
+        with open(commit_path, "rb") as f:
+            commit_obj = pickle.load(f)
+
+        print(f"Commit hash: {commit_hash}")
+        display_commit_details(commit_obj)
+        print("---------------------------")
+
+        
 
 def amend(message):
     """
@@ -268,31 +322,3 @@ def amend(message):
 
     with open(".minigit/HEAD", "w") as f:
         f.write(head_content)
-
-
-def reflog():
-    commits_dir = Path(".minigit/objects/commits")
-    hashes = {}
-    for prefix in os.listdir(commits_dir):
-        prefix_path = os.path.join(commits_dir, prefix) # Path to folder containing commit objects starting with some prefix
-        for filename in os.listdir(prefix_path):
-            commit_path = os.path.join(prefix_path, filename)
-            with open(commit_path, "rb") as f:
-                commit_obj = pickle.load(f)
-            commit_timestamp = commit_obj.timestamp
-            hashes[filename] = commit_timestamp
-
-    sorted_hashes = dict(sorted(hashes.items(), key = lambda x: (x[1] is None, x[1]), reverse=True))
-    
-    print("---------------------------")
-
-    for commit_hash in sorted_hashes:
-        commit_path = Path(f".minigit/objects/commits/{commit_hash[0:2]}/{commit_hash}")
-        with open(commit_path, "rb") as f:
-            commit_obj = pickle.load(f)
-
-        print(f"Commit hash: {commit_hash}")
-        display_commit_details(commit_obj)
-        print("---------------------------")
-
-        

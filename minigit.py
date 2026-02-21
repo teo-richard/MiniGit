@@ -51,6 +51,7 @@ def main():
 
     # Log command
     log_parser = subparsers.add_parser("log", help = "Print a log of commits in this branch.")
+    log_parser.add_argument("--all", action="store-true", help = "Log of all commits accessible from branches")
 
     # Checkout command
     checkout_parser = subparsers.add_parser("checkout", help = "Check out a commit")
@@ -132,7 +133,10 @@ def main():
         info_commands.status()
 
     if args.command == "log":
-        info_commands.log()
+        if args.all:
+            info_commands.log_all()
+        else:
+            info_commands.log()
 
     if args.command == "checkout":
         hash = args.hash
