@@ -78,7 +78,7 @@ def check_head():
         head = None
         branch_name = None
         hash_path = None
-        hash = head_content  # HEAD directly contains the commit hash
+        commit_hash = head_content  # HEAD directly contains the commit hash
     else:  # HEAD is attached to a branch
         head_detached = False
         # Parse branch reference from "ref: refs/heads/branch_name"
@@ -87,9 +87,9 @@ def check_head():
         # Get path to branch file and read the commit hash it points to
         hash_path = Path(".minigit") / "refs" / "heads" / branch_name
         with open(hash_path, "r") as f:
-            hash = f.read().strip()
+            commit_hash = f.read().strip()
 
-    return head_detached, head, branch_name, hash_path, hash
+    return head_detached, head, branch_name, hash_path, commit_hash
 
 
 def files_to_list(files):
@@ -365,3 +365,76 @@ def check_uncommitted_changes(func):
         func(*args, **kwargs)
         
     return check
+
+
+
+def find_common_ancestor(commit1, commit2):
+    """
+    Find the most recent common ancestor of two commits using BFS.
+
+    This is used during merge operations to implement three-way merge.
+    The common ancestor is the point where two branches diverged.
+
+    Args:
+        commit1: First Commit object (must be the current branch tip)
+        commit2: Second Commit object (must be the merge branch tip)
+
+    Returns:
+        Commit: The common ancestor Commit object
+    """
+    # Set to track all ancestors of commit1
+    commit1_ancestors = set()
+
+    # BFS queue starting from commit1's parent
+    queue = [commit1.parent[0]]
+
+    # Collect all ancestors of commit1 by walking backwards through history
+    while queue:
+        current = queue.pop(0)
+        if current in commit1_ancestors:
+            continue
+        commit1_ancestors.add(current)
+        next_commit_path = Path(".minigit") / "objects" / "commits" / current[:2] / current
+        with open(next_commit_path, "rb") as f:
+            next_commit_object = pickle.load(f)
+
+        if next_commit_object.parent:
+            next_commit_parent = next_commit_object.parent[0]
+            queue.append(next_commit_parent) # Stops when we append the None parent from the initial commit
+        else:
+            break
+
+    # Walk backwards from commit2 to find the first hash that exists in commit1's ancestors
+    # The first match is the most recent common ancestor
+    queue = [commit2.parent[0]]
+    while queue:
+        current = queue.pop(0)
+        if current in commit1_ancestors:
+                ancestor_hash = current
+                ancestor_path = Path(".minigit") / "objects" / "commits" / ancestor_hash[:2] / ancestor_hash
+                with open(ancestor_path, "rb") as f:
+                    ancestor = pickle.load(f)
+                return ancestor
+        
+        next_commit_path = Path(".minigit") / "objects" / "commits" / current[:2] / current
+        with open(next_commit_path, "rb") as f:
+            next_commit_object = pickle.load(f)
+        
+        next_commit_parent = next_commit_object.parent[0]
+        queue.append(next_commit_parent)
+    
+
+def check_detached_head_state(func):
+    @wraps(func)
+    def check_state(*args, **kwargs):
+        head_info = check_head()
+        head_detached = head_info[0]
+        branch_name = head_info[2]
+        if head_detached:
+            print(f"\nHead is detached. Unable to proceed.")
+            return
+        else:
+            print(f"\nMy magical mystical powers have told me you are on {branch_name} branch.")
+            
+        func(*args, **kwargs)
+    return check_state

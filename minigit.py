@@ -91,6 +91,10 @@ def main():
     # Reflog command
     reflog_parser = subparsers.add_parser("reflog", help = "List ALLLLLL your commits EVERRRRR.")
 
+    # Remote add command
+    remote_add_parser = subparsers.add_parser("remote add", help = "Add a remote repo")
+    remote_add_parser.add_argument("path", nargs=1, help = "Path to remote repo")
+
     # Parse command-line arguments
     args = parser.parse_args()
 
@@ -180,6 +184,9 @@ def main():
 
     if args.command == "reflog":
         info_commands.reflog()
+
+    if args.command == "remote add":
+        main_commands.init(args.path)
 
     
 
