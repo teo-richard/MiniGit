@@ -3,7 +3,7 @@ MiniGit - A simple version control system
 Entry point for the MiniGit CLI application.
 """
 
-from commands import main_commands, info_commands, basic_commands, branch_commands, history_commands
+from commands import main_commands, info_commands, basic_commands, branch_commands, history_commands, remote_commands
 import argparse
 import utils
 from utils import CommitNotFoundError
@@ -91,9 +91,15 @@ def main():
     # Reflog command
     reflog_parser = subparsers.add_parser("reflog", help = "List ALLLLLL your commits EVERRRRR.")
 
-    # Remote add command
-    remote_add_parser = subparsers.add_parser("remote add", help = "Add a remote repo")
-    remote_add_parser.add_argument("path", nargs=1, help = "Path to remote repo")
+    # Remote add command to add a remote repo
+    remote_parser = subparsers.add_parser("remote", help = "Remote")
+    remote_parser.add_argument("add", action ="store_true", help = "add remote repo")
+    remote_parser.add_argument("path", nargs=1, help = "Path to remote repo")
+
+    # Push command to push to a remote repo
+    push_parser = subparsers.add_parser("push")
+    push_parser.add_argument("name")
+    push_parser.add_argument("branch")
 
     # Parse command-line arguments
     args = parser.parse_args()
@@ -185,10 +191,15 @@ def main():
     if args.command == "reflog":
         info_commands.reflog()
 
-    if args.command == "remote add":
-        main_commands.init(args.path)
+    if args.command == "remote":
+        if args.add:
+            main_commands.init(args.path)
+        else:
+            print("dummy")
 
-    
+    if args.command == "push":
+        ancestors_to_push, path_to_repo, path_to_remote_branch = remote_commands.remote_prep_push(args.name, args.branch)
+        remote_commands.remote_push(ancestors_to_push, path_to_repo, path_to_remote_branch)
 
 
 if __name__ == "__main__":

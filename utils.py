@@ -362,7 +362,7 @@ def check_uncommitted_changes(func):
                     print(f"Input {user_input} not recognized.\n")
                     continue
             
-        func(*args, **kwargs)
+        return func(*args, **kwargs)
         
     return check
 
@@ -436,5 +436,5 @@ def check_detached_head_state(func):
         else:
             print(f"\nMy magical mystical powers have told me you are on {branch_name} branch.")
             
-        func(*args, **kwargs)
+        return func(*args, **kwargs)
     return check_state

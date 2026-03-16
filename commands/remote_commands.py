@@ -7,7 +7,7 @@ import pickle
 def remote_add(name, path):
     dict = {name: path}
 
-    config_path = Path.cwd() / ".mingit" / "config"
+    config_path = Path.cwd() / ".minigit" / "config"
     with open(config_path, "r") as f:
         config = json.load(f)
 
@@ -16,34 +16,42 @@ def remote_add(name, path):
     with open(config_path, "w") as f:
         json.dump(config, f)
 
-def push(name, branch):
-    utils.check_uncommitted_changes()
-
-    commit_hash = utils.check_head[4]
 
 @utils.check_uncommitted_changes
 @utils.check_detached_head_state # Checking to make sure head is attached
 def remote_prep_push(name, branch):
+    # Get the paths to remote repos out of the config file
     with open(".minigit/config", "r") as f:
         config = json.load(f)
     
+    # Get the path to the repo and branch the user wants
     path_to_repo = Path(config["remotes"][name])
     path_to_remote_branch = path_to_repo / f".minigit/refs/heads/{branch}"
 
-    local_branch_hash = utils.check_head[4]
+    # This is the most previous commit hash we have locally
+    local_branch_hash = utils.check_head()[4]
 
+    # Get the most previous commit hash the remote repo has
     with open(path_to_remote_branch, "r") as f:
         remote_branch_hash = f.read()
 
     # Finding common ancestor on the two branches
     # Get ancestors on local branch
     ancestors_to_push = [local_branch_hash]
-    local_commit_parent_hash = utils.get_commit(local_branch_hash).parent[0]
+    try:
+        local_commit_parent_hash = utils.get_commit(local_branch_hash).parent[0]
+    except IndexError:
+        return ancestors_to_push, path_to_repo, path_to_remote_branch
     if local_commit_parent_hash != remote_branch_hash:
         while local_commit_parent_hash:
             if local_commit_parent_hash != remote_branch_hash:
                 ancestors_to_push.append(local_commit_parent_hash)
-                local_commit_parent_hash = utils.get_commit(local_commit_parent_hash).parent[0]
+                try:
+                    local_commit_parent_hash = utils.get_commit(local_commit_parent_hash).parent[0]
+                except IndexError:
+                    break
+            else:
+                break
 
         return ancestors_to_push, path_to_repo, path_to_remote_branch
 
@@ -87,4 +95,4 @@ def remote_push(ancestors_to_push, path_to_repo, path_to_remote_branch):
     
     # Update the branch tip hash
     with open(path_to_remote_branch, "w") as f:
-        f.write(ancestors_to_push[-1])
+        f.write(ancestors_to_push[0]) # The most recent commit on the local branch
