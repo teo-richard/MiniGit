@@ -20,44 +20,34 @@ def remote_add(name, path):
 @utils.check_uncommitted_changes
 @utils.check_detached_head_state # Checking to make sure head is attached
 def remote_prep_push(name, branch):
-    # Get the paths to remote repos out of the config file
-    with open(".minigit/config", "r") as f:
-        config = json.load(f)
     
     # Get the path to the repo and branch the user wants
-    path_to_repo = Path(config["remotes"][name])
-    path_to_remote_branch = path_to_repo / f".minigit/refs/heads/{branch}"
+
+    path_to_repo, path_to_remote_branch = utils.get_remote_repo_and_branch(name, branch)
+    path_to_remote_branch.parent.mkdir(parents=True, exist_ok=True) # Creates the directory heads containing branch files if it doesn't exist already
+
 
     # This is the most previous commit hash we have locally
     local_branch_hash = utils.check_head()[4]
 
-    # Get the most previous commit hash the remote repo has
-    with open(path_to_remote_branch, "r") as f:
-        remote_branch_hash = f.read()
+    if path_to_remote_branch.exists():
+        # Get the most previous commit hash the remote repo has
+        remote_branch_hash = utils.open_remote_branch(path_to_remote_branch)
 
-    # Finding common ancestor on the two branches
-    # Get ancestors on local branch
-    ancestors_to_push = [local_branch_hash]
-    try:
-        local_commit_parent_hash = utils.get_commit(local_branch_hash).parent[0]
-    except IndexError:
-        return ancestors_to_push, path_to_repo, path_to_remote_branch
-    if local_commit_parent_hash != remote_branch_hash:
-        while local_commit_parent_hash:
-            if local_commit_parent_hash != remote_branch_hash:
-                ancestors_to_push.append(local_commit_parent_hash)
-                try:
-                    local_commit_parent_hash = utils.get_commit(local_commit_parent_hash).parent[0]
-                except IndexError:
-                    break
-            else:
-                break
-
-        return ancestors_to_push, path_to_repo, path_to_remote_branch
-
+        # Finding common ancestor on the two branches
+        # Get ancestors on local branch
+        result = utils.find_branch_ancestor(local_branch_hash, remote_branch_hash)
+        if result:
+            return result, path_to_repo, path_to_remote_branch
     else:
-        print("\nYou don't have any new commits to merge sucker. Go do something useful with your life.\n")
-            
+        ancestors_to_push = [local_branch_hash]
+        commit_parent = utils.get_commit_parent(local_branch_hash)
+        while commit_parent:
+            ancestors_to_push.append(commit_parent)
+            commit_parent = utils.get_commit_parent(commit_parent)
+        return ancestors_to_push, path_to_repo, path_to_remote_branch
+
+
 
 
 def copy_object(obj_hash, src_objects_dir, dst_objects_dir, object_type):
@@ -68,11 +58,10 @@ def copy_object(obj_hash, src_objects_dir, dst_objects_dir, object_type):
     if not dst.exists():
         shutil.copy(src, dst)
 
-def remote_push(ancestors_to_push, path_to_repo, path_to_remote_branch):
-    # order of commit hashes in the list ancestors_to_push doesn't matter
-    src_objects_dir = Path(".minigit") / "objects"
-    dst_objects_dir = path_to_repo / ".minigit" / "objects"
-    for ancestor_hash in ancestors_to_push:
+
+
+def copy_to_other_repo(src_objects_dir, dst_objects_dir, commit_hashes_to_copy_over):
+    for ancestor_hash in commit_hashes_to_copy_over:
         # Copy commit objects over
         copy_object(
             ancestor_hash, 
@@ -92,7 +81,39 @@ def remote_push(ancestors_to_push, path_to_repo, path_to_remote_branch):
             dst_objects_dir,
             "blobs"
         )
+
+
+
+def remote_push(ancestors_to_push, path_to_repo, path_to_remote_branch):
+    # order of commit hashes in the list ancestors_to_push doesn't matter
+    src_objects_dir = Path(".minigit") / "objects"
+    dst_objects_dir = path_to_repo / ".minigit" / "objects"
+    copy_to_other_repo(src_objects_dir, dst_objects_dir, ancestors_to_push)
     
     # Update the branch tip hash
     with open(path_to_remote_branch, "w") as f:
         f.write(ancestors_to_push[0]) # The most recent commit on the local branch
+
+
+
+def fetch(name, branch):
+    path_to_repo, path_to_remote_branch = utils.get_remote_repo_and_branch(name, branch)
+    remote_branch_hash = utils.open_remote_branch(path_to_remote_branch)
+    _, local_branch_hash = utils.check_head()[3:5]
+
+    commits_to_copy = utils.find_branch_ancestor(remote_branch_hash, local_branch_hash)
+    remote_branch_tip_hash = commits_to_copy[0]
+
+    path_to_new_local_branch = Path(f".minigit/refs/{name}/{branch}")
+    path_to_new_local_branch.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(path_to_new_local_branch, "w") as f:
+        f.write(remote_branch_tip_hash)
+
+    src_objects_dir = path_to_repo / ".minigit" / "objects"
+    dst_objects_dir = Path(".minigit") / "objects"
+
+    copy_to_other_repo(src_objects_dir, dst_objects_dir, commits_to_copy)
+
+
+

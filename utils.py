@@ -9,6 +9,7 @@ import hashlib
 import os
 import fnmatch
 from functools import wraps
+import json
 
 # Commit class represents a snapshot of the repository at a point in time
 class Commit:
@@ -438,3 +439,52 @@ def check_detached_head_state(func):
             
         return func(*args, **kwargs)
     return check_state
+
+
+def find_branch_ancestor(long_branch_hash, short_branch_hash):
+    ancestors_to_copy_over = [long_branch_hash]
+    try:
+        local_commit_parent_hash = get_commit(long_branch_hash).parent[0]
+    except IndexError: # The local branch only has the initial commit
+        return ancestors_to_copy_over  # Only 1 commit, nothing to compare
+    if local_commit_parent_hash != short_branch_hash:
+        while local_commit_parent_hash:
+            if local_commit_parent_hash != short_branch_hash:
+                ancestors_to_copy_over.append(local_commit_parent_hash)
+                try:
+                    local_commit_parent_hash = get_commit(local_commit_parent_hash).parent[0]
+                except IndexError: # reject non-fast-forward push
+                    print("\nError: Remote contains commits you don't have locally. Pull first.")
+                    return None
+            else:
+                break
+
+        return ancestors_to_copy_over
+
+    else:
+        print("\nYou don't have any new commits to merge sucker. Go do something useful with your life.\n")
+            
+
+def get_commit_parent(commit_hash):
+    try:
+        commit_parent = get_commit(commit_hash).parent[0]
+        return commit_parent
+    except IndexError:
+        return None
+    
+
+def open_remote_branch(path_to_remote_branch):
+    # Get the most previous commit hash the remote repo has
+    with open(path_to_remote_branch, "r") as f:
+        remote_branch_hash = f.read()
+
+    return remote_branch_hash
+
+def get_remote_repo_and_branch(name, branch):
+    with open(".minigit/config", "r") as f:
+        config = json.load(f)
+
+    path_to_repo = Path(config["remotes"][name])
+    path_to_remote_branch = path_to_repo / f".minigit/refs/heads/{branch}"
+
+    return path_to_repo, path_to_remote_branch

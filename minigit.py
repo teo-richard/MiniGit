@@ -101,6 +101,12 @@ def main():
     push_parser.add_argument("name")
     push_parser.add_argument("branch")
 
+    # Fetch command
+    fetch_parser = subparsers.add_parser("fetch", help = "fetch from a remote repo yk wazzup my g")
+    fetch_parser.add_argument("name")
+    fetch_parser.add_argument("branch")
+
+
     # Parse command-line arguments
     args = parser.parse_args()
 
@@ -198,8 +204,14 @@ def main():
             print("dummy")
 
     if args.command == "push":
-        ancestors_to_push, path_to_repo, path_to_remote_branch = remote_commands.remote_prep_push(args.name, args.branch)
-        remote_commands.remote_push(ancestors_to_push, path_to_repo, path_to_remote_branch)
+        try:
+            ancestors_to_push, path_to_repo, path_to_remote_branch = remote_commands.remote_prep_push(args.name, args.branch)
+            remote_commands.remote_push(ancestors_to_push, path_to_repo, path_to_remote_branch)
+        except TypeError:
+            pass
+
+    if args.command == "fetch":
+        remote_commands.fetch(args.name, args.branch)
 
 
 if __name__ == "__main__":
