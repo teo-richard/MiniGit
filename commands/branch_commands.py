@@ -215,84 +215,102 @@ def branch_delete(user_input):
 
 
     
-def merge(merge_branch_name, message):
+def merge(merge_branch_name, message, remote = False):
     """
-    Merge another branch into the current branch.
+    Merge another branch into the current branch using a three-way merge strategy.
 
-    First checks if a fast-forward is possible (local is strictly behind the merge
-    branch). If so, just moves the branch pointer — no merge commit needed. Otherwise,
-    performs a three-way merge using the common ancestor.
+    This implements a three-way merge that:
+    1. Finds the common ancestor between the two branches
+    2. Categorizes files based on how they changed relative to the ancestor
+    3. Creates a merge commit with two parents combining files from both branches
+    4. Handles conflicts by concatenating both versions with a separator
 
     Args:
-        merge_branch_name (str): Name of the branch to merge into the current branch.
-        message (str): Commit message for the merge commit (three-way merge only).
+        merge_branch_name (str): Name of the branch to merge into the current branch
+        message (str): Commit message for the merge commit
 
-    Three-Way Merge Strategy:
-        - Files unique to either branch: included as-is
-        - Files unchanged in both branches: kept as-is
-        - Files changed in only one branch: keep the changed version
-        - Files changed in both branches: concatenate with a conflict separator
+    Merge Strategy (Three-Way):
+        - Files unique to either branch: Included in merge result
+        - Files unchanged in both branches: Keep as-is from ancestor
+        - Files changed in only one branch: Keep the changed version
+        - Files changed in both branches: Concatenate with separator (conflict marker)
+
+    File Categories:
+        - unique_files: Files that exist in only one branch
+        - unchanged_files: Files identical in both branches
+        - current_commit_keep_change: Changed only in current branch
+        - merge_commit_keep_change: Changed only in merge branch
+        - changed_files_cc/mc: Changed in BOTH branches (conflicts)
     """
     # ============================================================================
-    # STEP 1: Load commit objects for both branches
+    # STEP 1: Load commit objects from current branch and merge branch
     # ============================================================================
     head_tuple = utils.check_head()
     branch_name = head_tuple[2]
     head_detached = head_tuple[0]
 
-    # Current branch — the branch we're merging INTO
+    # Get the current commit (the branch we're merging INTO)
     current_commit_hash = head_tuple[4]
     current_commit_object_path = Path(".minigit") / "objects" / "commits" / current_commit_hash[:2] / current_commit_hash
     with open(current_commit_object_path, "rb") as f:
         current_commit_object = pickle.load(f)
     current_commit_files = current_commit_object.files  # {filename: blob_hash}
 
-    # Merge branch — the branch we're merging FROM
-    merge_branch_path = Path(".minigit") / "refs" / "heads" / merge_branch_name
+    if remote == False:
+        # Get the merge branch commit (the branch we're merging FROM)
+        merge_branch_path = Path(".minigit") / "refs" / "heads" / merge_branch_name
+    else:
+        merge_branch_path = merge_branch_name #merge_branch_name is passed as a full path bc comes from the fetch() function. idk who wrote it like that....
+
     with open(merge_branch_path, "r") as f:
         merge_branch_tip_hash = f.read()
     merge_branch_commit_object = utils.get_commit(merge_branch_tip_hash)
     merge_branch_commit_files = merge_branch_commit_object.files  # {filename: blob_hash}
 
-    # Already up to date — both tips point to the same commit
+
+    # Checking for exact same hashes
     if current_commit_hash == merge_branch_tip_hash:
-        return "Already up to date."
+        return "Cannot merge because the two branch tips are exactly the same."
+    
 
-    # ============================================================================
-    # STEP 2: Find common ancestor and check for fast-forward
-    # ============================================================================
 
-    # The common ancestor is the point where the two branches last diverged
-    ancestor, ancestor_hash = utils.find_common_ancestor(current_commit_object, current_commit_hash, merge_branch_commit_object)
+    # Find the common ancestor commit for three-way merge
+    ancestor, ancestor_hash = utils.find_common_ancestor(current_commit_object, current_commit_hash, merge_branch_commit_object) # returns an actual commit class object
 
-    # Fast-forward: our current commit IS the common ancestor, meaning we haven't
-    # made any commits that the merge branch doesn't already have. Just move the
-    # branch pointer forward — no merge commit needed.
+    # Check for a fast-forward case
+    
     if current_commit_hash == ancestor_hash:
+
         if head_detached:
+            # Detached HEAD: Update HEAD to point directly to merge commit hash
+            head_content = merge_branch_tip_hash
             with open(".minigit/HEAD", "w") as f:
-                f.write(merge_branch_tip_hash)
+                f.write(head_content)
         else:
+            # Local is strictly behind the merge branch tip so we'll just move the branch pointer up to that tip
             branch_path = Path(".minigit") / "refs" / "heads" / branch_name
             with open(branch_path, "w") as f:
                 f.write(merge_branch_tip_hash)
+        
         utils.make_blob_current(merge_branch_commit_files)
         return
 
     ancestor_files = ancestor.files  # {filename: blob_hash}
 
     # ============================================================================
-    # STEP 3: Categorize files across both branches
+    # STEP 2: Categorize files based on presence in each commit
     # ============================================================================
 
-    # Files that only exist in one branch — include them directly
+    # Files that exist in only one of the two branches (not in both)
+    # These are straightforward - just include them in the merge
     unique_files_current_commit = {k: v for k, v in current_commit_files.items()
                                    if k not in merge_branch_commit_files.keys()}
     unique_files_merge_commit = {k: v for k, v in merge_branch_commit_files.items()
                                  if k not in current_commit_files.keys()}
     unique_files = unique_files_current_commit | unique_files_merge_commit
 
-    # Files that exist in both branches but differ — modified in at least one branch
+    # Files that exist in BOTH branches but have different blob hashes
+    # These files were modified in at least one branch since they diverged
     current_commit_changed_files = {k: v for k, v in current_commit_files.items()
                                     if k in merge_branch_commit_files.keys()
                                     and merge_branch_commit_files[k] != current_commit_files[k]}
@@ -301,85 +319,97 @@ def merge(merge_branch_name, message):
                                   and merge_branch_commit_files[k] != current_commit_files[k]}
 
     # ============================================================================
-    # STEP 4: Three-way merge — decide which version of each changed file to keep
+    # STEP 3: Use three-way merge to determine which changes to keep
     # ============================================================================
 
-    # Changed only in the current branch (merge branch matches ancestor) — keep current
+    # Files changed in ONLY the current branch (not in merge branch)
+    # Keep these changes: file differs from ancestor in current branch only
+    # Condition: current != ancestor AND merge == ancestor
     current_commit_keep_change = {k: v for k, v in current_commit_changed_files.items()
                                   if k in ancestor_files.keys()
                                   and current_commit_changed_files[k] != ancestor_files[k]
                                   and merge_commit_changed_files[k] == ancestor_files[k]}
 
-    # Changed only in the merge branch (current branch matches ancestor) — keep merge
+    # Files changed in ONLY the merge branch (not in current branch)
+    # Keep these changes: file differs from ancestor in merge branch only
+    # Condition: merge != ancestor AND current == ancestor
     merge_commit_keep_change = {k: v for k, v in merge_commit_changed_files.items()
                                   if k in ancestor_files.keys()
                                   and merge_commit_changed_files[k] != ancestor_files[k]
                                   and current_commit_changed_files[k] == ancestor_files[k]}
 
-    # Changed in BOTH branches — conflict, concatenate both versions with a separator
+    # Files changed in BOTH branches (conflicts)
+    # These need special handling - we'll concatenate both versions
+    # Filter out files that were only changed in one branch
+    # Both dictionaries will have matching keys after this filtering
     changed_files_cc = {k: v for k, v in current_commit_changed_files.items()
                         if k not in current_commit_keep_change and k not in merge_commit_keep_change}
     changed_files_mc = {k: v for k, v in merge_commit_changed_files.items()
                         if k not in merge_commit_keep_change and k not in current_commit_keep_change}
 
-    # Files identical in both branches — no action needed, keep as-is
+    # Files that exist in both branches with identical content (no conflict)
     files_in_both = {k: v for k, v in current_commit_files.items()
                      if k in merge_branch_commit_files.keys() and k in current_commit_files.keys()}
     unchanged_files = {k: v for k, v in files_in_both.items()
                        if merge_branch_commit_files[k] == current_commit_files[k]}
 
     # ============================================================================
-    # STEP 5: Apply changes to the working directory
+    # STEP 4: Apply changes to working directory
     # ============================================================================
 
-    # Write non-conflicted changes to disk
+    # Write files that changed in only one branch to the working directory
     utils.make_blob_current(current_commit_keep_change)
     utils.make_blob_current(merge_commit_keep_change)
 
-    # Resolve conflicts by concatenating both versions with a separator
-    new_files = {}  # {filename: new_blob_hash} for conflict-resolved files
+    # Handle conflicting files (changed in both branches)
+    # Strategy: Concatenate both versions with a separator line
+    new_files = {}  # Will store {filename: new_blob_hash} for conflicted files
     for k, v in changed_files_cc.items():
+        # Load the blob content from current branch
         current_commit_blob_path = Path(".minigit") / "objects" / "blobs" / v[:2] / v
         with open(current_commit_blob_path, "rb") as f:
             current_commit_blob = f.read()
 
-        # Both dicts have the same keys after conflict filtering
-        merge_conflict_blob_hash = changed_files_mc[k]
-        merge_commit_blob_path = Path(".minigit") / "objects" / "blobs" / merge_conflict_blob_hash[:2] / merge_conflict_blob_hash
+        # Load the blob content from merge branch
+        merge_commit_hash = changed_files_mc[k]  # Safe because both dicts have same keys
+        merge_commit_blob_path = Path(".minigit") / "objects" / "blobs" / merge_commit_hash[:2] / merge_commit_hash
         with open(merge_commit_blob_path, "rb") as f:
             merge_commit_blob = f.read()
 
+        # Combine both versions with a conflict separator
         separator = b'\n==========================================================================\n'
         combined_files = current_commit_blob + separator + merge_commit_blob
         combined_files_hash = hashlib.sha1(combined_files).hexdigest()
         new_files[k] = combined_files_hash
 
-        # Store the combined blob in the objects database
+        # Store the combined content as a new blob in the objects database
         blob_subdir = Path(".minigit") / "objects" / "blobs" / combined_files_hash[:2]
         blob_subdir.mkdir(exist_ok=True)
         blob_path = blob_subdir / combined_files_hash
         with open(blob_path, "wb") as f:
             f.write(combined_files)
 
+    # Write conflicted files and unique files from merge branch to working directory
     utils.write_files_from_dictionary(new_files)
     utils.write_files_from_dictionary(unique_files_merge_commit)
 
     # ============================================================================
-    # STEP 6: Create and store the merge commit
+    # STEP 5: Create and store the merge commit
     # ============================================================================
 
-    # Final file state = all categorized files combined
+    # Combine all file categories to create the final state after merge
     all_files = unique_files | unchanged_files | new_files | current_commit_keep_change | merge_commit_keep_change
     username = getpass.getuser()
 
-    # A merge commit has two parents, distinguishing it from a regular commit
+    # Create a merge commit with TWO parents (distinguishes merge from regular commit)
     merge_commit = Commit(
         message = message,
         author = username,
-        parent = [current_commit_hash, merge_branch_tip_hash],
+        parent = [current_commit_hash, merge_branch_tip_hash],  # Two parents = merge commit
         files = all_files
     )
 
+    # Serialize, hash, and store the merge commit in objects database
     merge_commit_bytes = pickle.dumps(merge_commit)
     merge_commit_hash = hashlib.sha1(merge_commit_bytes).hexdigest()
     merge_commit_subdir = Path(".minigit") / "objects" / "commits" / merge_commit_hash[:2]
@@ -389,15 +419,18 @@ def merge(merge_branch_name, message):
         f.write(merge_commit_bytes)
 
     # ============================================================================
-    # STEP 7: Advance HEAD or the current branch pointer to the merge commit
+    # STEP 6: Update HEAD or current branch to point to the merge commit
     # ============================================================================
 
+
     if head_detached:
-        # Detached HEAD: point HEAD directly at the new merge commit
+        # Detached HEAD: Update HEAD to point directly to merge commit hash
+        head_content = merge_commit_hash
         with open(".minigit/HEAD", "w") as f:
-            f.write(merge_commit_hash)
+            f.write(head_content)
     else:
-        # Attached HEAD: update the branch pointer; HEAD itself stays as-is
+        # Attached HEAD: Update the branch pointer to the merge commit
+        # HEAD itself stays pointing to the branch reference
         branch_path = Path(".minigit") / "refs" / "heads" / branch_name
         with open(branch_path, "w") as f:
             f.write(merge_commit_hash)

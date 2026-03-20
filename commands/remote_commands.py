@@ -122,8 +122,8 @@ def fetch(name, branch):
 
 @utils.check_detached_head_state
 def pull(name, branch):
-    path_to_new_local_branch = str(fetch(name, branch))
-    merge(path_to_new_local_branch, f"Merge {name}/{branch}")
+    path_to_new_local_branch = fetch(name, branch)
+    merge(path_to_new_local_branch, f"Merge {name}/{branch}", True)
 
     print(f"\nSuccessfully merged branch path {path_to_new_local_branch} to branch {utils.check_head()[2]} (your current branch).")
     print("Pull complete.\n")
