@@ -115,7 +115,10 @@ def main():
         try:
             utils.get_commit(args.hash)
         except CommitNotFoundError as e:
-            print(e)
+            if args.command == "checkout":
+                branch_commands.checkout_branch_instead_of_commit(args.hash, e)
+            else:
+                print(e)
             return
 
     # Route to appropriate command handler

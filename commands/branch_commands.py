@@ -65,6 +65,15 @@ def checkout_commit(checkout_hash):
             "\nThen, you may commit new changes with 'minigit commit -m <commite message>'." \
             "\nOr, to get back to an existing branch, use 'minigit switch <branch name>'.")
 
+def checkout_branch_instead_of_commit(checkout_hash, error_message):
+    # This is if the user passes a branch name to checkout_commit() instead of a hash like they're SUPPOSED to
+    branch_names = os.listdir(".minigit/objects/refs/heads")
+    if checkout_hash in branch_names:
+        branch_switch(checkout_hash)
+    
+    else:
+        print(error_message)
+
 
 def branch_switch(branch_name):
     """
