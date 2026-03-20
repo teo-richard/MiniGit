@@ -3,6 +3,7 @@ from pathlib import Path
 import utils
 import shutil
 import pickle
+from branch_commands import merge
 
 def remote_add(name, path):
     dict = {name: path}
@@ -114,6 +115,15 @@ def fetch(name, branch):
     dst_objects_dir = Path(".minigit") / "objects"
 
     copy_to_other_repo(src_objects_dir, dst_objects_dir, commits_to_copy)
+    print(f"\nFetched commits from {name}, branch {branch} and copied to \"{path_to_new_local_branch}\"")
+
+    return path_to_new_local_branch
 
 
+@utils.check_detached_head_state
+def pull(name, branch):
+    path_to_new_local_branch = str(fetch(name, branch))
+    merge(path_to_new_local_branch, f"Merge {name}/{branch}")
 
+    print(f"\nSuccessfully merged branch path {path_to_new_local_branch} to branch {utils.check_head()[2]} (your current branch).")
+    print("Pull complete.\n")

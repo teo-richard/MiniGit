@@ -369,7 +369,7 @@ def check_uncommitted_changes(func):
 
 
 
-def find_common_ancestor(commit1, commit2):
+def find_common_ancestor(commit1, commit1_hash, commit2):
     """
     Find the most recent common ancestor of two commits using BFS.
 
@@ -385,6 +385,8 @@ def find_common_ancestor(commit1, commit2):
     """
     # Set to track all ancestors of commit1
     commit1_ancestors = set()
+    commit1_ancestors.add(commit1_hash)
+
 
     # BFS queue starting from commit1's parent
     queue = [commit1.parent[0]]
@@ -414,8 +416,8 @@ def find_common_ancestor(commit1, commit2):
                 ancestor_hash = current
                 ancestor_path = Path(".minigit") / "objects" / "commits" / ancestor_hash[:2] / ancestor_hash
                 with open(ancestor_path, "rb") as f:
-                    ancestor = pickle.load(f)
-                return ancestor
+                    ancestor_object = pickle.load(f)
+                return ancestor_object, ancestor_hash
         
         next_commit_path = Path(".minigit") / "objects" / "commits" / current[:2] / current
         with open(next_commit_path, "rb") as f:
