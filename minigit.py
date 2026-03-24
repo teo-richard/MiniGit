@@ -8,6 +8,66 @@ import argparse
 import utils
 from utils import CommitNotFoundError
 
+
+def _handle_empty(args):
+        if args.file:
+            basic_commands.empty_file(args.filename)
+        else:
+            basic_commands.empty()
+            print("\nStaging area emptied.\n")
+
+def _handle_commit(args):
+    if args.amend:
+        info_commands.amend(args.message)
+    else:
+        main_commands.commit(args.message)
+        basic_commands.empty()
+        print("\nStaging area has been emptied. Congratulations on your commit!\n")
+
+def _handle_log(args):
+    if args.all:
+        info_commands.log_all()
+    else:
+        info_commands.log()
+
+def _handle_switch(args):
+        branch_name = args.branch
+        if args.create == True:
+            branch_commands.branch_create(branch_name = branch_name)
+        else:
+            branch_commands.branch_switch(branch_name = branch_name)
+
+
+
+def _handle_branch(args):
+        if args.delete:
+            branch_commands.branch_delete(args.branch)
+        else:
+            branch_commands.branch_list()
+
+def _handle_reset(args):
+    if args.hard:
+        history_commands.reset(args.hash, "hard")
+    elif args.soft:
+        history_commands.reset(args.hash, "soft")
+    else:
+        print("Specify a flaggy mc flag flag \"--hard\" or \"--soft\" please!")
+
+def _handle_remote(args):
+        if args.add:
+            main_commands.init(args.path)
+        else:
+            print("dummy")
+
+def _handle_push(args):
+    try:
+        ancestors_to_push, path_to_repo, path_to_remote_branch = remote_commands.remote_prep_push(args.name, args.branch)
+        remote_commands.remote_push(ancestors_to_push, path_to_repo, path_to_remote_branch)
+    except TypeError:
+        pass
+
+
+
 def main():
     """
     Main entry point for MiniGit CLI.
@@ -106,6 +166,11 @@ def main():
     fetch_parser.add_argument("name")
     fetch_parser.add_argument("branch")
 
+    # Pull command
+    pull_parser = subparsers.add_parser("pull", help = "pull deez nuts out yo face")
+    pull_parser.add_argument("name")
+    pull_parser.add_argument("branch")
+
 
     # Parse command-line arguments
     args = parser.parse_args()
@@ -120,103 +185,33 @@ def main():
             else:
                 print(e)
             return
-
-    # Route to appropriate command handler
-    if args.command == "init":
-        main_commands.init()
-
-    if args.command == "add":
-        main_commands.stage(args.files, "additions")
-
-    if args.command == "remove":
-        main_commands.stage(args.files, "removals")
-
-    if args.command == "empty":
-        filename = args.filename
-        if args.file:
-            basic_commands.empty_file(filename)
-        else:
-            basic_commands.empty()
-            print("\nStaging area emptied.\n")
-
-    if args.command == "commit":
-        message = args.message
-        if args.amend:
-            info_commands.amend(message)
-        else:
-            main_commands.commit(message)
-            basic_commands.empty()
-            print("\nStaging area has been emptied. Congratulations on your commit!\n")
-
-    if args.command == "status":
-        info_commands.status()
-
-    if args.command == "log":
-        if args.all:
-            info_commands.log_all()
-        else:
-            info_commands.log()
-
-    if args.command == "checkout":
-        hash = args.hash
-        branch_commands.checkout_commit(checkout_hash = hash)
-
-    if args.command == "switch":
-        branch_name = args.branch
-        if args.create == True:
-            branch_commands.branch_create(branch_name = branch_name)
-        else:
-            branch_commands.branch_switch(branch_name = branch_name)
         
-    if args.command == "branch":
-        if args.delete:
-            branch_commands.branch_delete(args.branch)
-        else:
-            branch_commands.branch_list()
+    dispatch = {
+        "init": lambda args: main_commands.init(),
+        "add": lambda args: main_commands.stage(args.files, "additions"),
+        "remove": lambda args: main_commands.stage(args.files, "removals"),
+        "empty": _handle_empty,
+        "commit": _handle_commit,
+        "status": lambda args: info_commands.status(),
+        "log": _handle_log,
+        "checkout": lambda args: branch_commands.checkout_commit(checkout_hash = args.hash),
+        "switch": _handle_switch,
+        "branch": _handle_branch,
+        "merge": lambda args: branch_commands.merge(merge_branch_name=args.branch, message=args.message),
+        "minigitignore": lambda args: basic_commands.mgignore(args.files),
+        "revert": lambda args: history_commands.revert(args.hash, args.message),
+        "reset": _handle_reset,
+        "reflog": lambda args: info_commands.reflog(),
+        "remote": _handle_remote,
+        "push": _handle_push,
+        "fetch": lambda args: remote_commands.fetch(args.name, args.branch),
+        "pull": lambda args: remote_commands.pull(args.name, args.branch)
+    }
 
-    if args.command == "merge":
-        branch_name = args.branch
-        merge_message = args.message
-        branch_commands.merge(merge_branch_name = branch_name, message = merge_message)
+    if args.command in dispatch:
+        dispatch[args.command](args)
 
-    if args.command == "minigitignore":
-        files = args.files
-        basic_commands.mgignore(files)
-
-    if args.command == "revert":
-        hash = args.hash
-        message = args.message
-        history_commands.revert(hash, message)
-
-    if args.command == "reset":
-        hash = args.hash
-        if args.hard:
-            history_commands.reset(hash, "hard")
-        elif args.soft:
-            history_commands.reset(hash, "soft")
-        else:
-            print("Specify a flaggy mc flag flag \"--hard\" or \"--soft\" please!")
-
-    if args.command == "reflog":
-        info_commands.reflog()
-
-    if args.command == "remote":
-        if args.add:
-            main_commands.init(args.path)
-        else:
-            print("dummy")
-
-    if args.command == "push":
-        try:
-            ancestors_to_push, path_to_repo, path_to_remote_branch = remote_commands.remote_prep_push(args.name, args.branch)
-            remote_commands.remote_push(ancestors_to_push, path_to_repo, path_to_remote_branch)
-        except TypeError:
-            pass
-
-    if args.command == "fetch":
-        remote_commands.fetch(args.name, args.branch)
 
 
 if __name__ == "__main__":
     main()
-
