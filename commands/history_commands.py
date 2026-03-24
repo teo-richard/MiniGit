@@ -3,7 +3,6 @@ History manipulation commands for MiniGit.
 Provides commands to revert to previous commits and reset repository state.
 """
 
-import pathlib as Path
 import pickle
 import getpass
 import utils

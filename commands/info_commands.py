@@ -318,7 +318,7 @@ def amend(message):
     if head_detached:
         head_content = commit_hash
     else:
-        head_content = f"refs: refs/heads{branch_name}"
+        head_content = f"refs: refs/heads/{branch_name}"
 
     with open(".minigit/HEAD", "w") as f:
         f.write(head_content)

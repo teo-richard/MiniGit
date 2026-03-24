@@ -33,7 +33,7 @@ def init(dir = None):
     elif dir.exists():
         current_dir = dir
     else:
-        dir.mkdir(parents=True, exists_ok=True)
+        dir.mkdir(parents=True, exist_ok=True)
         current_dir = dir
         return
     
@@ -113,10 +113,10 @@ def init(dir = None):
             pickle.dump(empty_dict, f)  # Serialize and write the empty dictionary
 
     # Create config file
-    config_path = Path.cwd() / ".mingit" / "config"
+    config_path = Path.cwd() / ".minigit" / "config"
     config_initial_dict = {"remotes": {}}
     with open(config_path, "w") as f:
-        json.dump(f)
+        json.dump(config_initial_dict, f)
 
     print("Initialized MiniGit repository. Go ham.")
 

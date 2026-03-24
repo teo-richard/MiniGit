@@ -53,11 +53,7 @@ def _handle_reset(args):
     else:
         print("Specify a flaggy mc flag flag \"--hard\" or \"--soft\" please!")
 
-def _handle_remote(args):
-        if args.add:
-            main_commands.init(args.path)
-        else:
-            print("dummy")
+
 
 def _handle_push(args):
     try:
@@ -99,7 +95,7 @@ def main():
     empty_parser = subparsers.add_parser("empty", help = "Empty staging area")
     empty_parser.add_argument("-f", "--file", action="store_true", help = "Take a file out of staging area")
     # Changed to accept multiple files using nargs="+" for selective unstaging
-    empty_parser.add_argument("filename", nargs = "+", help = "File to take out of staging area")
+    empty_parser.add_argument("filename", nargs = "*", help = "File to take out of staging area")
 
     # Commit command
     commit_parser = subparsers.add_parser("commit", help = "Commit the staging area")
@@ -153,8 +149,8 @@ def main():
 
     # Remote add command to add a remote repo
     remote_parser = subparsers.add_parser("remote", help = "Remote")
-    remote_parser.add_argument("add", action ="store_true", help = "add remote repo")
-    remote_parser.add_argument("path", nargs=1, help = "Path to remote repo")
+    remote_parser.add_argument("name", help = "Name of remote repo e.g. origin")
+    remote_parser.add_argument("path", help = "Path to remote repo")
 
     # Push command to push to a remote repo
     push_parser = subparsers.add_parser("push")
@@ -202,7 +198,7 @@ def main():
         "revert": lambda args: history_commands.revert(args.hash, args.message),
         "reset": _handle_reset,
         "reflog": lambda args: info_commands.reflog(),
-        "remote": _handle_remote,
+        "remote": lambda args: remote_commands.remote_add(args.name, args.path),
         "push": _handle_push,
         "fetch": lambda args: remote_commands.fetch(args.name, args.branch),
         "pull": lambda args: remote_commands.pull(args.name, args.branch)

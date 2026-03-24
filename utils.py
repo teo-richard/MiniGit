@@ -389,42 +389,48 @@ def find_common_ancestor(commit1, commit1_hash, commit2):
 
 
     # BFS queue starting from commit1's parent
-    queue = [commit1.parent[0]]
+    if commit1.parent:
+        queue = [commit1.parent[0]]
 
-    # Collect all ancestors of commit1 by walking backwards through history
-    while queue:
-        current = queue.pop(0)
-        if current in commit1_ancestors:
-            continue
-        commit1_ancestors.add(current)
-        next_commit_path = Path(".minigit") / "objects" / "commits" / current[:2] / current
-        with open(next_commit_path, "rb") as f:
-            next_commit_object = pickle.load(f)
+        # Collect all ancestors of commit1 by walking backwards through history
+        while queue:
+            current = queue.pop(0)
+            if current in commit1_ancestors:
+                continue
+            commit1_ancestors.add(current)
+            next_commit_path = Path(".minigit") / "objects" / "commits" / current[:2] / current
+            with open(next_commit_path, "rb") as f:
+                next_commit_object = pickle.load(f)
 
-        if next_commit_object.parent:
-            next_commit_parent = next_commit_object.parent[0]
-            queue.append(next_commit_parent) # Stops when we append the None parent from the initial commit
-        else:
-            break
+            if next_commit_object.parent:
+                next_commit_parent = next_commit_object.parent[0]
+                queue.append(next_commit_parent) # Stops when we append the None parent from the initial commit
+            else:
+                break
+
+    else:
+        pass
 
     # Walk backwards from commit2 to find the first hash that exists in commit1's ancestors
     # The first match is the most recent common ancestor
-    queue = [commit2.parent[0]]
-    while queue:
-        current = queue.pop(0)
-        if current in commit1_ancestors:
-                ancestor_hash = current
-                ancestor_path = Path(".minigit") / "objects" / "commits" / ancestor_hash[:2] / ancestor_hash
-                with open(ancestor_path, "rb") as f:
-                    ancestor_object = pickle.load(f)
-                return ancestor_object, ancestor_hash
-        
-        next_commit_path = Path(".minigit") / "objects" / "commits" / current[:2] / current
-        with open(next_commit_path, "rb") as f:
-            next_commit_object = pickle.load(f)
-        
-        next_commit_parent = next_commit_object.parent[0]
-        queue.append(next_commit_parent)
+    if commit2.parent:
+        queue = [commit2.parent[0]]
+        while queue:
+            current = queue.pop(0)
+            if current in commit1_ancestors:
+                    ancestor_hash = current
+                    ancestor_path = Path(".minigit") / "objects" / "commits" / ancestor_hash[:2] / ancestor_hash
+                    with open(ancestor_path, "rb") as f:
+                        ancestor_object = pickle.load(f)
+                    return ancestor_object, ancestor_hash
+            
+            next_commit_path = Path(".minigit") / "objects" / "commits" / current[:2] / current
+            with open(next_commit_path, "rb") as f:
+                next_commit_object = pickle.load(f)
+            
+            if next_commit_object.parent:
+                next_commit_parent = next_commit_object.parent[0]
+                queue.append(next_commit_parent)
     
 
 def check_detached_head_state(func):

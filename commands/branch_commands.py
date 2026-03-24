@@ -67,7 +67,7 @@ def checkout_commit(checkout_hash):
 
 def checkout_branch_instead_of_commit(checkout_hash, error_message):
     # This is if the user passes a branch name to checkout_commit() instead of a hash like they're SUPPOSED to
-    branch_names = os.listdir(".minigit/objects/refs/heads")
+    branch_names = os.listdir(".minigit/refs/heads")
     if checkout_hash in branch_names:
         branch_switch(checkout_hash)
     
@@ -284,7 +284,11 @@ def merge(merge_branch_name, message, remote = False):
 
 
     # Find the common ancestor commit for three-way merge
-    ancestor, ancestor_hash = utils.find_common_ancestor(current_commit_object, current_commit_hash, merge_branch_commit_object) # returns an actual commit class object
+    try:
+        ancestor, ancestor_hash = utils.find_common_ancestor(current_commit_object, current_commit_hash, merge_branch_commit_object) # returns an actual commit class object
+    except TypeError:
+        print("Could not find a common ancestor. Please check the branches you are merging.")
+        return
 
     # Check for a fast-forward case
     

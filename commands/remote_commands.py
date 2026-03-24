@@ -3,7 +3,7 @@ from pathlib import Path
 import utils
 import shutil
 import pickle
-from branch_commands import merge
+from commands.branch_commands import merge
 
 def remote_add(name, path):
     dict = {name: path}
