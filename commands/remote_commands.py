@@ -103,27 +103,35 @@ def fetch(name, branch):
     _, local_branch_hash = utils.check_head()[3:5]
 
     commits_to_copy = utils.find_branch_ancestor(remote_branch_hash, local_branch_hash)
-    remote_branch_tip_hash = commits_to_copy[0]
+    try:
+        remote_branch_tip_hash = commits_to_copy[0]
 
-    path_to_new_local_branch = Path(f".minigit/refs/{name}/{branch}")
-    path_to_new_local_branch.parent.mkdir(parents=True, exist_ok=True)
+        path_to_new_local_branch = Path(f".minigit/refs/{name}/{branch}")
+        path_to_new_local_branch.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(path_to_new_local_branch, "w") as f:
-        f.write(remote_branch_tip_hash)
+        with open(path_to_new_local_branch, "w") as f:
+            f.write(remote_branch_tip_hash)
 
-    src_objects_dir = path_to_repo / ".minigit" / "objects"
-    dst_objects_dir = Path(".minigit") / "objects"
+        src_objects_dir = path_to_repo / ".minigit" / "objects"
+        dst_objects_dir = Path(".minigit") / "objects"
 
-    copy_to_other_repo(src_objects_dir, dst_objects_dir, commits_to_copy)
-    print(f"\nFetched commits from {name}, branch {branch} and copied to \"{path_to_new_local_branch}\"")
+        copy_to_other_repo(src_objects_dir, dst_objects_dir, commits_to_copy)
+        print(f"\nFetched commits from {name}, branch {branch} and copied to \"{path_to_new_local_branch}\"")
 
-    return path_to_new_local_branch
+        return path_to_new_local_branch
+
+    except IndexError: # If commits_to_copy is an empty list
+        print("\nAlready up to date. Loser smoooooozer.\n")
+        return False
 
 
 @utils.check_detached_head_state
 def pull(name, branch):
     path_to_new_local_branch = fetch(name, branch)
-    merge(path_to_new_local_branch, f"Merge {name}/{branch}", True)
+    if path_to_new_local_branch:
+        merge(path_to_new_local_branch, f"Merge {name}/{branch}", True)
 
-    print(f"\nSuccessfully merged branch path {path_to_new_local_branch} to branch {utils.check_head()[2]} (your current branch).")
-    print("Pull complete.\n")
+        print(f"\nSuccessfully merged branch path {path_to_new_local_branch} to branch {utils.check_head()[2]} (your current branch).")
+        print("Pull complete.\n")
+    else:
+        print("\nPull failed because you're already up to date.\n")

@@ -11,7 +11,7 @@ import hashlib
 from commands import main_commands, basic_commands
 
 @utils.check_uncommitted_changes
-def revert(hash, message):
+def revert(commit_hash, message):
     """
     Revert the repository to a previous commit's state by creating a new commit.
 
@@ -20,9 +20,9 @@ def revert(hash, message):
     the commit history intact.
 
     Args:
-        hash: The SHA-1 hash of the commit to revert to
+        commit_hash: The SHA-1 hash of the commit to revert to
         message: Optional commit message for the revert commit.
-                 If None, defaults to "Reverting to commit {hash}."
+                 If None, defaults to "Reverting to commit {commit_hash}."
 
     Process:
         1. Restores working directory files to match the target commit
@@ -32,10 +32,10 @@ def revert(hash, message):
     # Restore working directory to match the target commit
 
     tracked_files = utils.get_tracked_files() # Getting files in the most recent commit
-    utils.get_old_commit_state(hash, tracked_files) # Going back to the state of the user-inputted commit
+    utils.get_old_commit_state(commit_hash, tracked_files) # Going back to the state of the user-inputted commit
 
     # Load the target commit to get its file list
-    revert_commit_object = utils.get_commit(hash)
+    revert_commit_object = utils.get_commit(commit_hash)
     revert_commit_files = revert_commit_object.files
 
     # Clear the staging area before staging the reverted files
@@ -44,15 +44,21 @@ def revert(hash, message):
     # Stage all files from the target commit
     staging_area, _, _ = utils.get_staging_area()
 
-    for file, hash in revert_commit_files.items():
-        staging_area["additions"][file] = hash
+    for file, blob_hash in revert_commit_files.items():
+        staging_area["additions"][file] = blob_hash
+
+    # But the commit() function sees the most recent commit and picks up all files from that commit
+    # Solution: stage files we don't want in our revert commit for removal
+    remove_files = [filename for filename in tracked_files.keys() if filename not in revert_commit_files.keys()]
+    for filename in remove_files:
+        staging_area["removals"].append(filename)
 
     with open(".minigit/index", "wb") as f:
         pickle.dump(staging_area, f)
 
     # Create the revert commit with default message if none provided
     if message == None:
-        message = f"Reverting to commit {hash}."
+        message = f"Reverting to commit {commit_hash}."
     main_commands.commit(message)
 
 

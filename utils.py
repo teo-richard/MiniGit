@@ -257,7 +257,8 @@ def get_old_commit_state(hash, tracked_files):
 
     This function is used during checkout/revert operations to make the
     working directory match a historical commit. It restores files from
-    the commit and removes files that shouldn't exist at that point.
+    the commit and removes files that shouldn't exist at that point. It 
+    is also used in a fast-forward merge situation.
 
     Args:
         hash: The SHA-1 hash of the commit to restore
@@ -450,6 +451,10 @@ def check_detached_head_state(func):
 
 
 def find_branch_ancestor(long_branch_hash, short_branch_hash):
+    if long_branch_hash == short_branch_hash:
+        print("Nothing to push")
+        return []
+
     ancestors_to_copy_over = [long_branch_hash]
     try:
         local_commit_parent_hash = get_commit(long_branch_hash).parent[0]
@@ -470,7 +475,7 @@ def find_branch_ancestor(long_branch_hash, short_branch_hash):
         return ancestors_to_copy_over
 
     else:
-        print("\nYou don't have any new commits to merge sucker. Go do something useful with your life.\n")
+        return ancestors_to_copy_over
             
 
 def get_commit_parent(commit_hash):

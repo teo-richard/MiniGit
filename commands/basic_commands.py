@@ -30,13 +30,12 @@ def mgignore(files):
 
     Args:
         files: Single filename/pattern (str) or list of filenames/patterns to ignore
-
-    Note:
-        This overwrites the existing .minigitignore content rather than appending.
     """
     filelist = utils.files_to_list(files)
-    with open(".minigitignore", 'w') as f:
-        f.write('\n'.join(filelist))
+    with open(".minigitignore", 'a') as f:
+        f.write('\n'+'\n'.join(filelist))
+
+
 
 def empty_file(files):
     """

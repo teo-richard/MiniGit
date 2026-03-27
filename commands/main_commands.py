@@ -13,6 +13,7 @@ import utils
 from utils import Commit
 import os
 import json
+from commands.basic_commands import empty
 
 
 def init(dir = None):
@@ -35,7 +36,6 @@ def init(dir = None):
     else:
         dir.mkdir(parents=True, exist_ok=True)
         current_dir = dir
-        return
     
     minigit_dir = current_dir / ".minigit"
 
@@ -52,48 +52,47 @@ def init(dir = None):
     (minigit_dir / "refs" / "heads").mkdir(parents=True)  # Stores branch pointers (parents=True creates intermediate dirs)
     # Note: HEAD is created later as a file, not a directory
 
-    if dir == None:
-        # Create empty .minigitignore file
-        minigitignore_path = ".minigitignore"
-        with open(minigitignore_path, "w") as f:
-            pass
+    # Create empty .minigitignore file
+    minigitignore_path = current_dir / ".minigitignore"
+    with open(minigitignore_path, "w") as f:
+        pass
 
-        # Get the author using getpass to get the username
-        username = getpass.getuser()
+    # Get the author using getpass to get the username
+    username = getpass.getuser()
 
-        # Create the initial commit object (empty repository state)
-        initial_commit = Commit(
-            message = "initial commit",
-            author = username,
-            parent = [],  # No parent since this is the first commit
-            files = {}  # No files tracked in initial commit
-        )
+    # Create the initial commit object (empty repository state)
+    initial_commit = Commit(
+        message = "initial commit",
+        author = username,
+        parent = [],  # No parent since this is the first commit
+        files = {}  # No files tracked in initial commit
+    )
 
-        # Serialize the commit object to bytes using pickle
-        # This converts the Python object to a byte stream that can be stored on disk
-        initial_commit_data = pickle.dumps(initial_commit)
+    # Serialize the commit object to bytes using pickle
+    # This converts the Python object to a byte stream that can be stored on disk
+    initial_commit_data = pickle.dumps(initial_commit)
 
-        # Generate SHA-1 hash of the commit data to create a unique identifier
-        # This hash serves as the commit ID and filename
-        initial_commit_hash = hashlib.sha1(initial_commit_data).hexdigest()
+    # Generate SHA-1 hash of the commit data to create a unique identifier
+    # This hash serves as the commit ID and filename
+    initial_commit_hash = hashlib.sha1(initial_commit_data).hexdigest()
 
-        # Create subdirectory using first 2 characters of hash (git-style optimization)
-        # This prevents having too many files in a single directory
-        # e.g., if hash is "abc123...", creates ".minigit/objects/commits/ab/"
-        object_subdir = minigit_dir / "objects" / "commits" / initial_commit_hash[:2]
-        object_subdir.mkdir()
-        commit_file = object_subdir / initial_commit_hash
+    # Create subdirectory using first 2 characters of hash (git-style optimization)
+    # This prevents having too many files in a single directory
+    # e.g., if hash is "abc123...", creates ".minigit/objects/commits/ab/"
+    object_subdir = minigit_dir / "objects" / "commits" / initial_commit_hash[:2]
+    object_subdir.mkdir()
+    commit_file = object_subdir / initial_commit_hash
 
-        # Write the serialized commit data to the commit file
-        # The file is named using the full commit hash
-        with open(commit_file, "wb") as f:  # "wb" mode for writing binary data
-            f.write(initial_commit_data) # initial_commit_data is in bytes
+    # Write the serialized commit data to the commit file
+    # The file is named using the full commit hash
+    with open(commit_file, "wb") as f:  # "wb" mode for writing binary data
+        f.write(initial_commit_data) # initial_commit_data is in bytes
 
-        # Create the master branch and make it point to the initial commit
-        # Branch files contain the hash of the commit they point to
-        master_branch = minigit_dir / "refs" / "heads" / "master"
-        with open(master_branch, "w") as f:  # "w" mode for writing text
-            f.write(initial_commit_hash) # the hash is just text
+    # Create the master branch and make it point to the initial commit
+    # Branch files contain the hash of the commit they point to
+    master_branch = minigit_dir / "refs" / "heads" / "master"
+    with open(master_branch, "w") as f:  # "w" mode for writing text
+        f.write(initial_commit_hash) # the hash is just text
 
     # Create HEAD file to track current commit and branch
     # HEAD stores [current_commit_hash, current_branch_name]
@@ -102,18 +101,17 @@ def init(dir = None):
     with open(HEAD_path, "w") as f:
         f.write(head_content)  # Store as pickled list for easy modification later
 
-    if dir == None:
-        # Create empty staging area (index)
-        # The index tracks files to be added or removed in the next commit
-        index_file = minigit_dir / "index"
-        empty_dict = {"additions": {}, "removals": []}  # additions: {filename: hash}, removals: [filename]
+    # Create empty staging area (index)
+    # The index tracks files to be added or removed in the next commit
+    index_file = minigit_dir / "index"
+    empty_dict = {"additions": {}, "removals": []}  # additions: {filename: hash}, removals: [filename]
 
-        # Write the empty staging area structure to disk
-        with open(index_file, "wb") as f:
-            pickle.dump(empty_dict, f)  # Serialize and write the empty dictionary
+    # Write the empty staging area structure to disk
+    with open(index_file, "wb") as f:
+        pickle.dump(empty_dict, f)  # Serialize and write the empty dictionary
 
     # Create config file
-    config_path = Path.cwd() / ".minigit" / "config"
+    config_path = minigit_dir  / "config"
     config_initial_dict = {"remotes": {}}
     with open(config_path, "w") as f:
         json.dump(config_initial_dict, f)
@@ -226,7 +224,7 @@ def commit(commit_message):
     6. Updates HEAD to point to the new commit
     """
     # Load the current staging area to see what changes are ready to commit
-    staging_area, staging_area_additions, staging_area_removals = utils.get_staging_area()
+    _, staging_area_additions, staging_area_removals = utils.get_staging_area()
 
     # Update the branch to point to the new commit if head is not detached
     # Get branch from head
@@ -317,6 +315,9 @@ def commit(commit_message):
 
         
         print(f"\nHead points to {branch_name}.")
+
+    # Empty staging area
+    empty()
     
 
 

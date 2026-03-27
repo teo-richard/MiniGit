@@ -282,11 +282,11 @@ def amend(message):
     """
     
     head_tuple = utils.check_head()
-    hash = head_tuple[4] # Hash of most recent commit
+    recent_commit_hash = head_tuple[4] # Hash of most recent commit
 
     # Open the commit and get the object
-    commit_subdir = Path(".minigit") / "objects" / "commits" / hash[:2] # Need the subdir path isolated for when checking subdir deletion
-    commit_path = commit_subdir / hash
+    commit_subdir = Path(".minigit") / "objects" / "commits" / recent_commit_hash[:2] # Need the subdir path isolated for when checking subdir deletion
+    commit_path = commit_subdir / recent_commit_hash
     with open(commit_path, "rb") as f:
         commit_object = pickle.load(f)
 
@@ -319,6 +319,12 @@ def amend(message):
         head_content = commit_hash
     else:
         head_content = f"refs: refs/heads/{branch_name}"
+        # update branch tip
+        with open(f".minigit/refs/heads/{branch_name}", "w") as f:
+            f.write(commit_hash)
 
+    # update HEAD
     with open(".minigit/HEAD", "w") as f:
         f.write(head_content)
+
+

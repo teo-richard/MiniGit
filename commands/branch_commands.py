@@ -32,38 +32,42 @@ def checkout_commit(checkout_hash):
     # Get the files currently being tracked
     tracked_files = utils.get_tracked_files()
 
-    # Check if the files have been modified
-    checkout_good = True
+    # Get files in staging area
+    _, _, removals = utils.get_staging_area()
+
+    # Check if the files have been modified and then check if any of the files are staged as a removal
     for file, hash in tracked_files.items():
         if not os.path.exists(file):
             print(f"Unable to checkout: tracked file {file} is missing. Did you delete it?")
-            checkout_good = False
-            break
+            return
         try:
             with open(file, "rb") as f:
                 filecontent = f.read()
             filehash = hashlib.sha1(filecontent).hexdigest()
             if filehash != hash:
                 print("Unable to checkout because it will overwrite changes that have not been committed. ")
-                checkout_good = False
-                break
+                return
         except (PermissionError, IOError, IsADirectoryError) as e:
             print(f"Unable to checkout: There is a problem reading {file}.\n{e}")
-            checkout_good = False
-            break
-
-    if checkout_good == True:
-        utils.get_old_commit_state(checkout_hash, tracked_files)
+            return
         
-        # Update HEAD to point directly to the commit hash (detached HEAD state)
-        # This means HEAD is not attached to any branch
-        with open(".minigit/HEAD", "w") as f:
-            f.write(checkout_hash)
+        if file in removals:
+            print(f"ERROR: {file} is staged as a removal but is in the commit you are checking out. Remove {file} from staging area before checking out.")
+            return
 
-        print("\nWARNING. You are in a DETACHED head state." \
-            "To create a new branch, use 'minigit switch -c <branch_name>'." \
-            "\nThen, you may commit new changes with 'minigit commit -m <commite message>'." \
-            "\nOr, to get back to an existing branch, use 'minigit switch <branch name>'.")
+
+
+    utils.get_old_commit_state(checkout_hash, tracked_files)
+    
+    # Update HEAD to point directly to the commit hash (detached HEAD state)
+    # This means HEAD is not attached to any branch
+    with open(".minigit/HEAD", "w") as f:
+        f.write(checkout_hash)
+
+    print("\nWARNING. You are in a DETACHED head state." \
+        "To create a new branch, use 'minigit switch -c <branch_name>'." \
+        "\nThen, you may commit new changes with 'minigit commit -m <commite message>'." \
+        "\nOr, to get back to an existing branch, use 'minigit switch <branch name>'.")
 
 def checkout_branch_instead_of_commit(checkout_hash, error_message):
     # This is if the user passes a branch name to checkout_commit() instead of a hash like they're SUPPOSED to
@@ -214,7 +218,10 @@ def branch_list():
 
 def branch_delete(user_input):
     for branch in user_input:
-        remove_branch_ref(branch)
+        try:
+            remove_branch_ref(branch)
+        except FileNotFoundError:
+            print(f"\n***Warning: Branch {branch} not found therefore did not delete this branch.\n.")
 
 
 
@@ -271,8 +278,12 @@ def merge(merge_branch_name, message, remote = False):
     else:
         merge_branch_path = merge_branch_name #merge_branch_name is passed as a full path bc comes from the fetch() function. idk who wrote it like that....
 
-    with open(merge_branch_path, "r") as f:
-        merge_branch_tip_hash = f.read()
+    try:
+        with open(merge_branch_path, "r") as f:
+            merge_branch_tip_hash = f.read()
+    except FileNotFoundError:
+        print(f"Branch {merge_branch_name} does not exist silly silly billy billy.")
+        return
     merge_branch_commit_object = utils.get_commit(merge_branch_tip_hash)
     merge_branch_commit_files = merge_branch_commit_object.files  # {filename: blob_hash}
 
@@ -293,6 +304,7 @@ def merge(merge_branch_name, message, remote = False):
     # Check for a fast-forward case
     
     if current_commit_hash == ancestor_hash:
+        files_tracked_by_current_commit = utils.get_tracked_files()
 
         if head_detached:
             # Detached HEAD: Update HEAD to point directly to merge commit hash
@@ -306,6 +318,7 @@ def merge(merge_branch_name, message, remote = False):
                 f.write(merge_branch_tip_hash)
         
         utils.make_blob_current(merge_branch_commit_files)
+        utils.get_old_commit_state(merge_branch_tip_hash, files_tracked_by_current_commit)
         return
 
     ancestor_files = ancestor.files  # {filename: blob_hash}

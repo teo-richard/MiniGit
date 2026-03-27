@@ -60,7 +60,7 @@ def _handle_push(args):
         ancestors_to_push, path_to_repo, path_to_remote_branch = remote_commands.remote_prep_push(args.name, args.branch)
         remote_commands.remote_push(ancestors_to_push, path_to_repo, path_to_remote_branch)
     except TypeError:
-        pass
+        print("Your remote branch is already up to date.")
 
 
 

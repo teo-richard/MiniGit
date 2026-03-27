@@ -1,43 +1,8 @@
 """
 *** ALL TESTS WRITTEN BY CLAUDE CODE ***
 
-
 Adversarial / edge-case tests for MiniGit.
-
-These tests were written by treating every function as potentially broken and
-asking: "what is the worst input or sequence of operations?".
-
-Confirmed bugs exposed by this file
--------------------------------------
-BUG-1  remove_branch_ref / branch_delete with a non-existent branch name
-       raises an unhandled FileNotFoundError.
-
-BUG-2  FIXED: amend() when HEAD is detached now handles the case correctly
-       and no longer creates a bogus refs/heads/None file.
-
-BUG-3  FIXED: fetch() when already up-to-date now prints "Already up to date"
-       instead of crashing with IndexError on commits_to_copy[0].
-
-BUG-4  FIXED: merge() with a nonexistent branch now prints a user-friendly
-       error message instead of raising an unhandled FileNotFoundError.
-
-BUG-5  remote_prep_push() when nothing needs pushing (local == remote):
-       find_branch_ancestor returns [], which is falsy, so the function falls
-       off the end and returns None with no user feedback.
-
-BUG-6  revert() to a commit that has FEWER files than the current commit does
-       not remove the extra files. revert() clears the staging area and then
-       only stages files present in the target commit. When commit() runs, it
-       carries over all files from the parent (the commit before revert was
-       called) that are not staged for removal. Reverting to the initial
-       commit (files={}) still leaves all previously tracked files in the new
-       commit because they were never staged for removal.
-
-Confirmed fixed bugs
---------------------
-FIXED  revert() default message: the loop now uses `blob_hash` (not `hash`),
-       so the `commit_hash` parameter is no longer shadowed and the default
-       message correctly contains the target commit hash.
+See tests/BUGS.md for the full bug tracker.
 """
 
 import hashlib
@@ -271,8 +236,16 @@ class TestBranchCreateEdgeCases:
 # ===========================================================================
 
 class TestBranchDeleteEdgeCases:
-    def test_delete_nonexistent_branch_raises_file_not_found(self, repo_one):
-        """BUG-1: No guard around os.remove → FileNotFoundError."""
+    def test_delete_nonexistent_branch_via_branch_delete_prints_warning(self, repo_one, capsys):
+        """FIXED BUG-1: branch_delete() now catches FileNotFoundError and
+        prints a warning instead of crashing."""
+        branch_commands.branch_delete(["ghost_branch"])
+        out = capsys.readouterr().out
+        assert "ghost_branch" in out or "not found" in out.lower() or "warning" in out.lower()
+
+    def test_remove_branch_ref_directly_still_raises(self, repo_one):
+        """remove_branch_ref() itself has no try/except — only branch_delete()
+        catches the error. Direct callers must be aware."""
         with pytest.raises(FileNotFoundError):
             branch_commands.remove_branch_ref("ghost_branch")
 
@@ -846,3 +819,593 @@ class TestRemoteAdd:
             cfg = json.load(f)
         assert "origin" in cfg["remotes"]
         assert "upstream" in cfg["remotes"]
+
+
+# ===========================================================================
+# check_uncommitted_changes decorator — "n" path
+# ===========================================================================
+
+class TestCheckUncommittedChangesAbort:
+    """When the user answers 'n' to the prompt, the decorated function must
+    not execute.  All tests in this class patch input() to return 'n'."""
+
+    def test_reset_aborted_by_n_does_not_move_branch_pointer(self, repo_two, monkeypatch):
+        monkeypatch.setattr("builtins.input", lambda _: "n")
+        (repo_two / "hello.txt").write_bytes(b"dirty - triggers prompt")
+        original_hash = _head_hash(repo_two)
+        parent = utils.get_commit(original_hash).parent[0]
+        history_commands.reset(parent, "hard")
+        assert _head_hash(repo_two) == original_hash
+
+    def test_reset_aborted_by_n_does_not_change_working_directory(self, repo_two, monkeypatch):
+        monkeypatch.setattr("builtins.input", lambda _: "n")
+        (repo_two / "hello.txt").write_bytes(b"dirty")
+        history_commands.reset(utils.get_commit(_head_hash(repo_two)).parent[0], "hard")
+        assert (repo_two / "hello.txt").read_bytes() == b"dirty"
+
+    def test_revert_aborted_by_n_does_not_create_new_commit(self, repo_one, monkeypatch):
+        monkeypatch.setattr("builtins.input", lambda _: "n")
+        (repo_one / "hello.txt").write_bytes(b"dirty")
+        original_hash = _head_hash(repo_one)
+        initial_hash = utils.get_commit(original_hash).parent[0]
+        history_commands.revert(initial_hash, "should not happen")
+        assert _head_hash(repo_one) == original_hash
+
+    def test_reset_proceeds_when_user_answers_y(self, repo_two, monkeypatch):
+        monkeypatch.setattr("builtins.input", lambda _: "y")
+        (repo_two / "hello.txt").write_bytes(b"dirty")
+        parent = utils.get_commit(_head_hash(repo_two)).parent[0]
+        history_commands.reset(parent, "hard")
+        assert _head_hash(repo_two) == parent
+
+
+# ===========================================================================
+# Non-fast-forward push rejection
+# ===========================================================================
+
+class TestNonFastForwardPush:
+    def test_push_when_remote_is_ahead_returns_none(self, two_repos):
+        """If remote has commits local doesn't know about, find_branch_ancestor
+        returns None and remote_prep_push returns None (push rejected)."""
+        local, remote = two_repos
+        # First push: sync local → remote
+        a, rp, bp = remote_commands.remote_prep_push("origin", "master")
+        remote_commands.remote_push(a, rp, bp)
+
+        # Advance the remote independently (simulate another developer pushing)
+        _sync_objects(local, remote)
+
+        # Add a new commit directly on the remote
+        orig_cwd = os.getcwd()
+        os.chdir(remote)
+        (remote / "remote_only.txt").write_bytes(b"remote work")
+        main_commands.stage(["remote_only.txt"], "additions")
+        main_commands.commit("remote advance")
+        basic_commands.empty()
+        os.chdir(orig_cwd)
+
+        # Now local tries to push — remote is ahead, should be rejected
+        result = remote_commands.remote_prep_push("origin", "master")
+        assert result is None
+
+    def test_remote_prep_push_non_ff_does_not_overwrite_remote(self, two_repos):
+        """A rejected push must not modify the remote branch pointer."""
+        _, remote = two_repos
+        a, rp, bp = remote_commands.remote_prep_push("origin", "master")
+        remote_commands.remote_push(a, rp, bp)
+
+        # Advance remote
+        orig_cwd = os.getcwd()
+        os.chdir(remote)
+        (remote / "r.txt").write_bytes(b"r")
+        main_commands.stage(["r.txt"], "additions")
+        main_commands.commit("remote only")
+        basic_commands.empty()
+        remote_tip_after = _head_hash(remote)
+        os.chdir(orig_cwd)
+
+        remote_commands.remote_prep_push("origin", "master")  # rejected
+        # Remote branch pointer must be unchanged
+        assert _branch_hash(remote, "master") == remote_tip_after
+
+
+# ===========================================================================
+# Pull when already up to date
+# ===========================================================================
+
+class TestPullEdgeCases:
+    def test_pull_when_up_to_date_does_not_crash(self, two_repos):
+        """FIXED BUG-7: pull() when already in sync prints a message and exits
+        cleanly instead of crashing with TypeError."""
+        local, remote = two_repos
+        a, rp, bp = remote_commands.remote_prep_push("origin", "master")
+        remote_commands.remote_push(a, rp, bp)
+        _sync_objects(remote, local)
+        remote_commands.pull("origin", "master")  # must not raise
+
+    def test_pull_does_not_change_branch_pointer_when_up_to_date(self, two_repos):
+        """FIXED BUG-7: branch pointer stays unchanged when pull is a no-op."""
+        local, remote = two_repos
+        a, rp, bp = remote_commands.remote_prep_push("origin", "master")
+        remote_commands.remote_push(a, rp, bp)
+        _sync_objects(remote, local)
+        before = _head_hash(local)
+        remote_commands.pull("origin", "master")
+        assert _head_hash(local) == before
+
+
+# ===========================================================================
+# Sequential amends
+# ===========================================================================
+
+class TestSequentialAmends:
+    def test_amend_twice_uses_latest_message(self, repo_one):
+        info_commands.amend("first amendment")
+        info_commands.amend("second amendment")
+        assert utils.get_commit(_head_hash(repo_one)).message == "second amendment"
+
+    def test_amend_twice_branch_pointer_valid_after_both(self, repo_one):
+        info_commands.amend("amend 1")
+        info_commands.amend("amend 2")
+        # Branch pointer must resolve to a real commit
+        commit = utils.get_commit(_head_hash(repo_one))
+        assert commit.message == "amend 2"
+
+    def test_amend_then_commit_creates_correct_chain(self, repo_one):
+        info_commands.amend("amended")
+        amended_hash = _head_hash(repo_one)
+        (repo_one / "new.txt").write_bytes(b"new")
+        main_commands.stage(["new.txt"], "additions")
+        main_commands.commit("after amend")
+        basic_commands.empty()
+        new_commit = utils.get_commit(_head_hash(repo_one))
+        assert new_commit.parent[0] == amended_hash
+
+
+# ===========================================================================
+# Status and log right after init (no user commits)
+# ===========================================================================
+
+class TestFreshRepoOperations:
+    def test_status_on_fresh_repo_does_not_crash(self, repo, capsys):
+        info_commands.status()
+        capsys.readouterr()  # just verify no exception
+
+    def test_log_on_fresh_repo_shows_initial_commit(self, repo, capsys):
+        info_commands.log()
+        out = capsys.readouterr().out
+        assert "initial commit" in out.lower() or "only the initial" in out.lower()
+
+    def test_log_all_on_fresh_repo_does_not_crash(self, repo, capsys):
+        info_commands.log_all()
+        capsys.readouterr()
+
+    def test_reflog_on_fresh_repo_does_not_crash(self, repo, capsys):
+        info_commands.reflog()
+        capsys.readouterr()
+
+    def test_branch_list_on_fresh_repo_shows_master(self, repo, capsys):
+        branch_commands.branch_list()
+        assert "master" in capsys.readouterr().out
+
+
+# ===========================================================================
+# branch_switch to the same branch
+# ===========================================================================
+
+class TestBranchSwitchSameBranch:
+    def test_switch_to_current_branch_stays_on_branch(self, repo_one):
+        branch_commands.branch_switch("master")
+        assert "master" in (repo_one / ".minigit" / "HEAD").read_text()
+
+    def test_switch_to_current_branch_does_not_move_pointer(self, repo_one):
+        before_hash = _head_hash(repo_one)
+        branch_commands.branch_switch("master")
+        assert _head_hash(repo_one) == before_hash
+
+
+# ===========================================================================
+# Detached HEAD: commit chain then re-attach
+# ===========================================================================
+
+class TestDetachedHeadWorkflow:
+    def test_commits_in_detached_head_not_lost_immediately(self, repo_one):
+        """Commits made in detached HEAD are reachable via the HEAD hash
+        even after switching back to a branch."""
+        parent = utils.get_commit(_head_hash(repo_one)).parent[0]
+        branch_commands.checkout_commit(parent)
+
+        (repo_one / "detached_work.txt").write_bytes(b"work done in detached state")
+        main_commands.stage(["detached_work.txt"], "additions")
+        main_commands.commit("detached commit")
+        basic_commands.empty()
+        detached_tip = _head_hash(repo_one)
+
+        # The commit must exist in the objects store
+        assert utils.get_commit(detached_tip).message == "detached commit"
+
+    def test_switching_back_to_branch_after_detached_leaves_branch_unchanged(self, repo_one):
+        master_before = _branch_hash(repo_one, "master")
+        parent = utils.get_commit(_head_hash(repo_one)).parent[0]
+        branch_commands.checkout_commit(parent)
+        (repo_one / "d.txt").write_bytes(b"d")
+        main_commands.stage(["d.txt"], "additions")
+        main_commands.commit("detached")
+        basic_commands.empty()
+        branch_commands.branch_switch("master")
+        assert _branch_hash(repo_one, "master") == master_before
+
+
+# ===========================================================================
+# ADVERSARIAL: untested bugs found by static analysis
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# BUG: init(dir) where dir does NOT yet exist returns early (line 38 of
+#      main_commands.py) before creating any .minigit structure.
+# ---------------------------------------------------------------------------
+
+class TestInitNonexistentDir:
+    def test_init_nonexistent_dir_creates_minigit_directory(self, tmp_path, monkeypatch):
+        """init() given a brand-new path should create .minigit inside it.
+        BUG: when dir does not exist, init() creates the directory then
+        immediately `return`s without building the .minigit structure."""
+        monkeypatch.chdir(tmp_path)
+        new_repo = tmp_path / "brand_new"
+        main_commands.init(new_repo)
+        assert (new_repo / ".minigit").exists(), \
+            ".minigit was not created — init() returned early"
+
+    def test_init_nonexistent_dir_creates_head(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        new_repo = tmp_path / "brand_new"
+        main_commands.init(new_repo)
+        assert (new_repo / ".minigit" / "HEAD").exists(), \
+            "HEAD not created — init() returned early"
+
+    def test_init_nonexistent_dir_creates_index(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        new_repo = tmp_path / "brand_new"
+        main_commands.init(new_repo)
+        assert (new_repo / ".minigit" / "index").exists(), \
+            "index not created — init() returned early"
+
+
+# ---------------------------------------------------------------------------
+# BUG: commit() never clears the staging area.
+#      Every test in this file manually calls basic_commands.empty() after
+#      each commit to paper over this.  A real repo should auto-clear.
+# ---------------------------------------------------------------------------
+
+class TestStagingAreaClearedAfterCommit:
+    def test_staging_area_additions_empty_after_commit(self, repo):
+        """The staging area should be empty after a successful commit."""
+        (repo / "a.txt").write_bytes(b"a")
+        main_commands.stage(["a.txt"], "additions")
+        main_commands.commit("add a")
+        # Intentionally NOT calling basic_commands.empty()
+        _, additions, removals = utils.get_staging_area()
+        assert additions == {}, \
+            f"BUG: staging additions not cleared after commit: {additions}"
+
+    def test_staging_area_removals_empty_after_commit(self, repo_one):
+        """Staged removals should also be cleared after commit."""
+        main_commands.stage(["hello.txt"], "removals")
+        main_commands.commit("remove hello")
+        # Intentionally NOT calling basic_commands.empty()
+        _, additions, removals = utils.get_staging_area()
+        assert removals == [], \
+            f"BUG: staging removals not cleared after commit: {removals}"
+
+    def test_double_commit_without_staging_produces_different_hashes(self, repo_one):
+        """Committing twice in a row (no new staging between) must give different
+        hashes because each commit has a different parent — but if the staging
+        area carries stale data from the first commit the second commit's files
+        dict will include duplicated additions."""
+        main_commands.commit("first no-stage commit")
+        # No empty() call
+        h1 = _head_hash(repo_one)
+        main_commands.commit("second no-stage commit")
+        h2 = _head_hash(repo_one)
+        # Two different commits must have different hashes
+        assert h1 != h2
+
+
+# ---------------------------------------------------------------------------
+# BUG: fast-forward merge calls make_blob_current() which only WRITES files;
+#      it never DELETES files that were removed on the merged branch.
+# ---------------------------------------------------------------------------
+
+class TestFastForwardMergeFileDeletion:
+    def test_ff_merge_removes_file_deleted_on_merged_branch(self, repo_one):
+        """After a fast-forward merge, files deleted on the merged branch should
+        not exist in the working directory.
+        BUG: make_blob_current() never deletes — stale files persist."""
+        # Create feature branch at the current commit and delete hello.txt there
+        branch_commands.branch_create("feature")
+        main_commands.stage(["hello.txt"], "removals")
+        main_commands.commit("delete hello on feature")
+        basic_commands.empty()
+
+        # Return to master (still has hello.txt committed)
+        branch_commands.branch_switch("master")
+        assert (repo_one / "hello.txt").exists(), "precondition: hello.txt on master"
+
+        # Fast-forward master up to feature (master is the ancestor of feature)
+        branch_commands.merge("feature", "ff merge")
+
+        assert not (repo_one / "hello.txt").exists(), \
+            "BUG: hello.txt survived FF merge even though feature deleted it"
+
+    def test_ff_merge_head_commit_does_not_contain_deleted_file(self, repo_one):
+        """The commit object after FF merge must not list the deleted file."""
+        branch_commands.branch_create("feature")
+        main_commands.stage(["hello.txt"], "removals")
+        main_commands.commit("delete hello on feature")
+        basic_commands.empty()
+        branch_commands.branch_switch("master")
+        branch_commands.merge("feature", "ff merge")
+        files = utils.get_commit(_head_hash(repo_one)).files
+        assert "hello.txt" not in files, \
+            "HEAD commit still references deleted file after FF merge"
+
+
+# ---------------------------------------------------------------------------
+# BUG: three-way merge categorises files that exist only in one branch as
+#      "unique" and always keeps them — it never respects a deletion that
+#      happened on the other branch relative to the common ancestor.
+# ---------------------------------------------------------------------------
+
+class TestThreeWayMergeFileDeletion:
+    @pytest.fixture
+    def diverged_repo(self, tmp_path, monkeypatch):
+        """Repo whose history looks like:
+            ancestor (has keep.txt + victim.txt)
+               /           \\
+          master            feature
+        (modifies keep.txt)  (deletes victim.txt)
+        """
+        monkeypatch.chdir(tmp_path)
+        main_commands.init()
+        (tmp_path / "keep.txt").write_bytes(b"original")
+        (tmp_path / "victim.txt").write_bytes(b"to be deleted on feature")
+        main_commands.stage(["keep.txt", "victim.txt"], "additions")
+        main_commands.commit("ancestor")
+        basic_commands.empty()
+
+        # feature branch: delete victim.txt
+        branch_commands.branch_create("feature")
+        main_commands.stage(["victim.txt"], "removals")
+        main_commands.commit("delete victim on feature")
+        basic_commands.empty()
+
+        # master branch: modify keep.txt (forces a real 3-way merge)
+        branch_commands.branch_switch("master")
+        (tmp_path / "keep.txt").write_bytes(b"modified on master")
+        main_commands.stage(["keep.txt"], "additions")
+        main_commands.commit("modify keep on master")
+        basic_commands.empty()
+
+        return tmp_path
+
+    def test_3way_merge_removes_file_deleted_on_other_branch(self, diverged_repo):
+        """victim.txt was deleted on feature but not touched on master.
+        The three-way merge should honour that deletion.
+        BUG: the file ends up in unique_files_current_commit and is kept."""
+        branch_commands.merge("feature", "merge feature into master")
+        assert not (diverged_repo / "victim.txt").exists(), \
+            "BUG: victim.txt survived 3-way merge even though feature deleted it"
+
+    def test_3way_merge_commit_excludes_file_deleted_on_other_branch(self, diverged_repo):
+        """The merge commit's file dict must not contain victim.txt."""
+        branch_commands.merge("feature", "merge feature into master")
+        files = utils.get_commit(_head_hash(diverged_repo)).files
+        assert "victim.txt" not in files, \
+            "BUG: merge commit still tracks victim.txt after it was deleted on feature"
+
+
+# ---------------------------------------------------------------------------
+# BUG: both stage() and get_directory_files_dictionary() normalise filenames
+#      with  str(path).lstrip("./")  which strips individual characters, not
+#      the substring "./".  A filename like ".env" loses its leading dot and
+#      is stored/tracked as "env".
+# ---------------------------------------------------------------------------
+
+class TestDotfileNameMangling:
+    def test_staging_dotfile_preserves_leading_dot(self, repo):
+        """Staging '.env' should store it under the key '.env', not 'env'."""
+        (repo / ".env").write_bytes(b"SECRET=hunter2")
+        main_commands.stage([".env"], "additions")
+        _, additions, _ = utils.get_staging_area()
+        assert ".env" in additions, \
+            f"BUG: dotfile stored as '{list(additions.keys())}' instead of '.env'"
+
+    def test_committed_dotfile_has_correct_name_in_commit(self, repo):
+        """The commit object must record the file as '.env', not 'env'."""
+        (repo / ".env").write_bytes(b"SECRET=hunter2")
+        main_commands.stage([".env"], "additions")
+        main_commands.commit("add dotfile")
+        basic_commands.empty()
+        files = utils.get_commit(_head_hash(repo)).files
+        assert ".env" in files, \
+            f"BUG: committed dotfile appears as '{list(files.keys())}' instead of '.env'"
+
+    def test_checkout_restores_dotfile_with_correct_name(self, repo_one):
+        """Checking out a commit containing '.env' must restore a file named
+        '.env', not a file named 'env'."""
+        (repo_one / ".env").write_bytes(b"SECRET=hunter2")
+        main_commands.stage([".env"], "additions")
+        main_commands.commit("add dotfile")
+        basic_commands.empty()
+        commit_with_dotfile = _head_hash(repo_one)
+
+        # Go back one commit then return
+        parent = utils.get_commit(commit_with_dotfile).parent[0]
+        branch_commands.checkout_commit(parent)
+        branch_commands.checkout_commit(commit_with_dotfile)
+
+        assert (repo_one / ".env").exists(), \
+            "BUG: dotfile '.env' not restored (was saved/restored as 'env')"
+
+
+# ---------------------------------------------------------------------------
+# BUG: mgignore() opens .minigitignore in 'w' (write/truncate) mode, so a
+#      second call silently discards every pattern added by the first call.
+# ---------------------------------------------------------------------------
+
+class TestMgignoreOverwrites:
+    def test_second_mgignore_call_preserves_first_patterns(self, repo):
+        """Calling mgignore twice should accumulate patterns, not replace them."""
+        basic_commands.mgignore(["*.log"])
+        basic_commands.mgignore(["*.tmp"])
+        content = (repo / ".minigitignore").read_text()
+        assert "*.log" in content, \
+            "BUG: first mgignore pattern '*.log' was erased by the second call"
+
+    def test_ignored_file_stays_ignored_after_second_mgignore_call(self, repo):
+        """A file matching the first pattern must still be ignored after a
+        second mgignore() call adds a different pattern."""
+        basic_commands.mgignore(["*.log"])
+        basic_commands.mgignore(["*.tmp"])
+        (repo / "server.log").write_bytes(b"log data")
+        assert utils.check_ignore("server.log"), \
+            "BUG: '*.log' no longer ignored after second mgignore() call erased it"
+
+
+# ---------------------------------------------------------------------------
+# BUG: utils.check_staging_area() iterates staging_area_removals with
+#      .keys() but removals is a plain list, not a dict → AttributeError.
+# ---------------------------------------------------------------------------
+
+class TestCheckStagingAreaBug:
+    def test_check_staging_area_with_staged_removal_does_not_crash(self, repo_one, capsys):
+        """check_staging_area() should not raise AttributeError when there are
+        staged removals.  BUG: it calls list.keys() which does not exist."""
+        main_commands.stage(["hello.txt"], "removals")
+        utils.check_staging_area()   # must not raise
+        capsys.readouterr()
+
+
+# ---------------------------------------------------------------------------
+# BUG: checkout_commit() checks whether tracked files are *modified* but
+#      never checks whether the *staging area* is dirty.  Staged additions
+#      are silently abandoned: the hashes recorded in the index refer to a
+#      pre-checkout file version, but after checkout the file on disk is
+#      different.  If the user then commits, the blob written to objects
+#      will contain the checked-out content while the commit's file dict
+#      records the (stale) staged hash — corrupting the object store.
+# ---------------------------------------------------------------------------
+
+class TestCheckoutIgnoresStagingArea:
+    def test_checkout_with_staged_addition_warns_user(self, repo_two, capsys):
+        """checkout_commit() should refuse when local changes would be overwritten."""
+        # Stage a modified version of hello.txt (do NOT commit)
+        (repo_two / "hello.txt").write_bytes(b"staged but not committed")
+        main_commands.stage(["hello.txt"], "additions")
+
+        # Checkout an earlier commit — hello.txt would be overwritten
+        parent = utils.get_commit(_head_hash(repo_two)).parent[0]
+        branch_commands.checkout_commit(parent)
+
+        out = capsys.readouterr().out.lower()
+        assert "overwrite" in out or "committed" in out or "unable" in out, \
+            "checkout proceeded silently despite local changes that would be overwritten"
+
+    def test_staged_hash_matches_file_on_disk_after_checkout(self, repo_two):
+        """After staging hello.txt and then checking out an older commit, the
+        hash recorded in the staging area must still match the file on disk.
+        BUG: checkout overwrites the file so the staged hash is now stale."""
+        (repo_two / "hello.txt").write_bytes(b"staged version")
+        main_commands.stage(["hello.txt"], "additions")
+        _, additions_before, _ = utils.get_staging_area()
+        staged_hash = additions_before["hello.txt"]
+
+        parent = utils.get_commit(_head_hash(repo_two)).parent[0]
+        branch_commands.checkout_commit(parent)
+
+        with open(repo_two / "hello.txt", "rb") as f:
+            actual_hash = hashlib.sha1(f.read()).hexdigest()
+
+        assert actual_hash == staged_hash, \
+            "BUG: checkout overwrote the staged file; staging area hash is now stale"
+
+
+# ---------------------------------------------------------------------------
+# BUG: find_common_ancestor() only ever follows parent[0] when building the
+#      ancestor set of commit1 and when walking commit2's history.  In a repo
+#      that already has a merge commit, it misses the second-parent branch and
+#      returns an ancestor that is *older* than the true common ancestor.
+# ---------------------------------------------------------------------------
+
+class TestFindCommonAncestorMergeHistory:
+    def test_common_ancestor_correct_after_prior_merge(self, tmp_path, monkeypatch):
+        """
+        History shape:
+            A ─── B ─── M (merge commit, parents=[B, D])  ← master
+                   \\
+                    C ─── D ─── E                          ← feature2
+
+        The true common ancestor of master (M) and feature2 (E) is D, which
+        is the second parent of M.  find_common_ancestor() only follows
+        parent[0] so it builds ancestors={M,B,A} and never visits D, then
+        walks E→D→C→A and finds A instead of D.
+        """
+        monkeypatch.chdir(tmp_path)
+        main_commands.init()
+
+        # Commit A (initial commit already exists; add a real file commit)
+        (tmp_path / "base.txt").write_bytes(b"base")
+        main_commands.stage(["base.txt"], "additions")
+        main_commands.commit("A: base")
+        basic_commands.empty()
+        a_hash = _head_hash(tmp_path)
+
+        # Commit B on master
+        (tmp_path / "master_only.txt").write_bytes(b"master")
+        main_commands.stage(["master_only.txt"], "additions")
+        main_commands.commit("B: master only")
+        basic_commands.empty()
+        b_hash = _head_hash(tmp_path)
+
+        # Branch off at A to create C→D on a side branch
+        branch_commands.checkout_commit(a_hash)
+        branch_commands.branch_create("side")
+        (tmp_path / "side.txt").write_bytes(b"side c")
+        main_commands.stage(["side.txt"], "additions")
+        main_commands.commit("C: side commit")
+        basic_commands.empty()
+
+        (tmp_path / "side.txt").write_bytes(b"side d")
+        main_commands.stage(["side.txt"], "additions")
+        main_commands.commit("D: side commit 2")
+        basic_commands.empty()
+        d_hash = _head_hash(tmp_path)
+
+        # Switch to master and merge side → creates merge commit M (parents=[B,D])
+        branch_commands.branch_switch("master")
+        branch_commands.merge("side", "M: merge side into master")
+        m_hash = _head_hash(tmp_path)
+        basic_commands.empty()
+
+        # Now create feature2 branching from D
+        branch_commands.checkout_commit(d_hash)
+        branch_commands.branch_create("feature2")
+        (tmp_path / "feature2.txt").write_bytes(b"feature2 work")
+        main_commands.stage(["feature2.txt"], "additions")
+        main_commands.commit("E: feature2 commit")
+        basic_commands.empty()
+        e_hash = _head_hash(tmp_path)
+
+        # Back to master, find common ancestor between M and E
+        branch_commands.branch_switch("master")
+
+        m_obj = utils.get_commit(m_hash)
+        e_obj = utils.get_commit(e_hash)
+        ancestor, ancestor_hash = utils.find_common_ancestor(m_obj, m_hash, e_obj)
+
+        # The true common ancestor is D (reachable via M's second parent).
+        # BUG: find_common_ancestor only follows parent[0] so it returns A instead.
+        assert ancestor_hash == d_hash, \
+            f"BUG: found ancestor {ancestor_hash[:8]} (expected D={d_hash[:8]}); " \
+            f"find_common_ancestor missed M's second parent"
