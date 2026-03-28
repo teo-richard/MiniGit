@@ -328,12 +328,15 @@ def merge(merge_branch_name, message, remote = False):
     # ============================================================================
 
     # Files that exist in only one of the two branches (not in both)
-    # These are straightforward - just include them in the merge
     unique_files_current_commit = {k: v for k, v in current_commit_files.items()
                                    if k not in merge_branch_commit_files.keys()}
+    # Exclude any file in unqiue files in current commit that also exist in ancestor because this means the merge branch intentionally deleted it
+    # In real git, git views this as an uncontested change and will not include this file in the merge result commit
+    excluded_files = {k: v for k, v in unique_files_current_commit.items() if k in ancestor_files.keys()}
     unique_files_merge_commit = {k: v for k, v in merge_branch_commit_files.items()
                                  if k not in current_commit_files.keys()}
     unique_files = unique_files_current_commit | unique_files_merge_commit
+    unique_files = {k: v for k, v in unique_files.items() if k not in excluded_files.keys()}
 
     # Files that exist in BOTH branches but have different blob hashes
     # These files were modified in at least one branch since they diverged
@@ -382,6 +385,11 @@ def merge(merge_branch_name, message, remote = False):
     # ============================================================================
     # STEP 4: Apply changes to working directory
     # ============================================================================
+
+    # Delete the excluded files (see step 2) from disk
+    for file in excluded_files:
+        if os.path.exists(file):
+            os.remove(file)
 
     # Write files that changed in only one branch to the working directory
     utils.make_blob_current(current_commit_keep_change)

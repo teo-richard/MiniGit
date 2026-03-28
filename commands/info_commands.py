@@ -34,7 +34,6 @@ def print_status(filelist: dict | list, message:str, color:str) -> bool:
         "magenta": Fore.MAGENTA,
         "cyan": Fore.CYAN,
         "white": Fore.WHITE,
-        "yellow": Fore.LIGHTYELLOW_EX
     }
     color_code = colors[color]
     print("\n" + message)

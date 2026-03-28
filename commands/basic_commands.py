@@ -65,6 +65,6 @@ def empty_file(files):
                 # Provide helpful error message if file isn't actually in staging area
                 print(f"Cannot remove {file} from staging area. Check if file is actually in staging area.")
 
-        # Write updated staging area back to disk after each file
-        with open(".minigit/index", "wb") as f:
-            pickle.dump(staging_area, f)
+    # Write updated staging area back to disk after each file
+    with open(".minigit/index", "wb") as f:
+        pickle.dump(staging_area, f)

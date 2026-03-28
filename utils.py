@@ -468,7 +468,7 @@ def find_branch_ancestor(long_branch_hash, short_branch_hash):
                     local_commit_parent_hash = get_commit(local_commit_parent_hash).parent[0]
                 except IndexError: # reject non-fast-forward push
                     print("\nError: Remote contains commits you don't have locally. Pull first.")
-                    return None
+                    return []
             else:
                 break
 

@@ -55,11 +55,11 @@ Now calls `empty()` at the end of a successful commit.
 
 **BUG-11** — Fast-forward merge calls `make_blob_current()` which only writes files to disk; it never deletes files that were removed on the merged branch. Stale files persist in the working directory.
 *File:* `commands/branch_commands.py`
-*Tests:* `TestFastForwardMergeFileDeletion`
+*Tests:* `TestFastForwardMergeFileDeletion` ✓ FIXED
 
 **BUG-12** — Three-way merge classifies files that exist only on one branch as "unique" and always keeps them. A deletion committed on the other branch relative to the common ancestor is silently ignored.
 *File:* `commands/branch_commands.py`
-*Tests:* `TestThreeWayMergeFileDeletion`
+*Tests:* `TestThreeWayMergeFileDeletion` ✓ FIXED
 
 **BUG-13** — `stage()` and `get_directory_files_dictionary()` normalise filenames with `str(path).lstrip("./")`, which strips individual characters rather than the substring `"./"`. A filename like `.env` loses its leading dot and is stored as `env`.
 *File:* `commands/main_commands.py`, `utils.py`
