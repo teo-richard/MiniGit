@@ -538,8 +538,9 @@ class TestCheckIgnoreEdgeCases:
     def test_minigit_dir_always_ignored(self, repo):
         assert utils.check_ignore(".minigit/HEAD") is True
 
-    def test_minigitignore_file_always_ignored(self, repo):
-        assert utils.check_ignore(".minigitignore") is True
+    def test_minigitignore_file_not_ignored_by_default(self, repo):
+        # .minigitignore is a normal tracked file (like .gitignore in real git)
+        assert utils.check_ignore(".minigitignore") is False
 
     def test_regular_file_not_ignored_by_default(self, repo):
         assert utils.check_ignore("myfile.txt") is False
@@ -1409,3 +1410,134 @@ class TestFindCommonAncestorMergeHistory:
         assert ancestor_hash == d_hash, \
             f"BUG: found ancestor {ancestor_hash[:8]} (expected D={d_hash[:8]}); " \
             f"find_common_ancestor missed M's second parent"
+
+
+# ===========================================================================
+# Additional mgignore tests
+# ===========================================================================
+
+class TestMgIgnoreAdditional:
+    def test_mgignore_single_string_accepted(self, repo):
+        """mgignore should accept a plain string, not just a list."""
+        basic_commands.mgignore("solo.log")
+        content = (repo / ".minigitignore").read_text()
+        assert "solo.log" in content
+
+    def test_mgignore_appends_to_existing_content(self, repo):
+        """Each mgignore call should add to the file, not erase prior entries."""
+        basic_commands.mgignore(["first.log"])
+        basic_commands.mgignore(["second.log"])
+        content = (repo / ".minigitignore").read_text()
+        assert "first.log" in content, \
+            "BUG: first pattern was erased by the second mgignore call"
+        assert "second.log" in content
+
+    def test_mgignore_empty_list_does_not_corrupt_file(self, repo):
+        """Calling mgignore with an empty list must not break the file."""
+        basic_commands.mgignore(["keep.log"])
+        basic_commands.mgignore([])
+        content = (repo / ".minigitignore").read_text()
+        assert "keep.log" in content
+
+    def test_mgignore_wildcard_pattern_respected_by_check_ignore(self, repo):
+        """A wildcard added via mgignore must cause check_ignore to return True."""
+        basic_commands.mgignore(["*.secret"])
+        assert utils.check_ignore("passwords.secret") is True
+
+    def test_mgignore_prevents_file_appearing_in_directory_scan(self, repo):
+        """Files matching a mgignore pattern must not appear in get_directory_files_dictionary."""
+        basic_commands.mgignore(["ignore_me.txt"])
+        (repo / "ignore_me.txt").write_bytes(b"hidden")
+        (repo / "keep_me.txt").write_bytes(b"visible")
+        files = utils.get_directory_files_dictionary(str(repo))
+        assert not any("ignore_me.txt" in k for k in files), \
+            "BUG: ignored file appeared in directory scan"
+        assert any("keep_me.txt" in k for k in files)
+
+    def test_mgignore_does_not_prevent_staging_non_matching_file(self, repo):
+        """Only files matching a pattern should be blocked from staging."""
+        basic_commands.mgignore(["*.log"])
+        (repo / "readme.txt").write_bytes(b"ok")
+        main_commands.stage(["readme.txt"], "additions")
+        _, additions, _ = utils.get_staging_area()
+        assert "readme.txt" in additions
+
+
+# ===========================================================================
+# Additional check_ignore tests
+# ===========================================================================
+
+class TestCheckIgnoreAdditional:
+    def test_minigitignore_present_after_init(self, repo):
+        """init() always creates .minigitignore, so check_ignore can open it safely."""
+        assert (repo / ".minigitignore").exists(), \
+            "init() must create .minigitignore so check_ignore never hits FileNotFoundError"
+
+    def test_minigitignore_itself_is_not_ignored_by_default(self, repo):
+        """.minigitignore is a normal tracked file (like .gitignore in real git).
+        It should NOT be auto-ignored — users can stage and commit it."""
+        assert utils.check_ignore(".minigitignore") is False
+
+    def test_exact_filename_in_minigitignore_is_ignored(self, repo):
+        """An exact filename listed in .minigitignore must be ignored."""
+        (repo / ".minigitignore").write_text("secret.txt\n")
+        assert utils.check_ignore("secret.txt") is True
+
+    def test_blank_lines_in_minigitignore_do_not_cause_false_positives(self, repo):
+        """Blank lines must not be treated as patterns that match empty-segment paths."""
+        (repo / ".minigitignore").write_text("\n\n\nreal.log\n\n")
+        assert utils.check_ignore("real.log") is True
+        assert utils.check_ignore("other.txt") is False
+
+    def test_inline_comment_not_supported_treated_as_literal(self, repo):
+        """Only full-line comments (#...) are stripped; inline '#' is part of the pattern."""
+        (repo / ".minigitignore").write_text("file.txt # not a comment\n")
+        # The pattern is the whole line; 'file.txt' alone should NOT match
+        assert utils.check_ignore("file.txt") is False
+
+    def test_directory_pattern_does_not_match_file_at_root(self, repo):
+        """A pattern like 'build/' should not match a plain file named 'build'."""
+        (repo / ".minigitignore").write_text("build/\n")
+        assert utils.check_ignore("build") is False, \
+            "BUG: directory pattern 'build/' wrongly matched plain file 'build'"
+
+    def test_directory_pattern_matches_deeply_nested_file(self, repo):
+        """'dist/' should ignore files at any depth inside dist/."""
+        (repo / ".minigitignore").write_text("dist/\n")
+        assert utils.check_ignore("dist/js/bundle.min.js") is True
+
+    def test_wildcard_matches_only_within_single_path_component(self, repo):
+        """'*.log' should match 'app.log' but not 'logs/app.log' via component matching."""
+        (repo / ".minigitignore").write_text("*.log\n")
+        # The filename component 'app.log' matches '*.log'
+        assert utils.check_ignore("app.log") is True
+
+    def test_nested_filename_matches_via_component_check(self, repo):
+        """'*.log' in .minigitignore must match 'subdir/app.log' (component match)."""
+        (repo / ".minigitignore").write_text("*.log\n")
+        assert utils.check_ignore("subdir/app.log") is True, \
+            "BUG: wildcard pattern did not match file inside a subdirectory"
+
+    def test_multiple_patterns_all_respected(self, repo):
+        """.minigitignore with several patterns should ignore each type."""
+        (repo / ".minigitignore").write_text("*.pyc\n*.o\nbuild/\n")
+        assert utils.check_ignore("module.pyc") is True
+        assert utils.check_ignore("main.o") is True
+        assert utils.check_ignore("build/out.bin") is True
+        assert utils.check_ignore("src/main.py") is False
+
+    def test_pattern_with_leading_dot_matches_dotfile(self, repo):
+        """.env listed in .minigitignore should cause check_ignore('.env') to be True."""
+        (repo / ".minigitignore").write_text(".env\n")
+        assert utils.check_ignore(".env") is True
+
+    def test_check_ignore_returns_false_for_empty_minigitignore(self, repo):
+        """An empty .minigitignore means nothing extra is ignored (beyond builtins)."""
+        (repo / ".minigitignore").write_text("")
+        assert utils.check_ignore("anything.txt") is False
+
+    def test_minigit_subpath_always_ignored(self, repo):
+        """Any path starting with .minigit/ is a builtin-ignored path."""
+        for path in (".minigit/HEAD", ".minigit/refs/heads/master", ".minigit/objects/blobs/ab/cd"):
+            assert utils.check_ignore(path) is True, \
+                f"BUG: builtin path '{path}' was not ignored"

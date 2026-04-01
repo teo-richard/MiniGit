@@ -10,6 +10,8 @@ import os
 import fnmatch
 from functools import wraps
 import json
+from colorama import Fore, Style, init
+from typing import List
 
 # Commit class represents a snapshot of the repository at a point in time
 class Commit:
@@ -69,6 +71,7 @@ def check_head():
             - hash_path (Path or None): Path to branch reference file or None if detached
             - hash (str): Current commit hash
     """
+
     # Read HEAD file to determine current state
     with open(".minigit/HEAD", "r") as f:
         head_content = f.read().strip()
@@ -132,8 +135,7 @@ def check_ignore(filepath):
     """
     # Built-in patterns that are always ignored (MiniGit's internal files)
     builtin_patterns = [
-        ".minigit/",
-        ".minigitignore"
+        ".minigit/"
     ]
     with open(".minigitignore", "r") as f:
         mgignore = [line.strip() for line in f if line.strip() and not line.strip().startswith("#")]
@@ -501,3 +503,51 @@ def get_remote_repo_and_branch(name, branch):
     path_to_remote_branch = path_to_repo / f".minigit/refs/heads/{branch}"
 
     return path_to_repo, path_to_remote_branch
+
+
+def print_status(filelist: dict | list, message:str, color:str) -> bool:
+    """
+    Print a formatted list of files with color coding.
+
+    Args:
+        filelist: Either a dictionary {filename: hash} or list of filenames
+        message: Header message to display before the file list
+        color: Color name for the output (red, green, yellow, blue, magenta, cyan, white)
+
+    Returns:
+        bool: Always returns True (currently unused)
+    """
+    # Map color names to colorama color codes
+    colors = {
+        "red": Fore.RED,
+        "green": Fore.GREEN,
+        "yellow": Fore.YELLOW,
+        "blue": Fore.BLUE,
+        "magenta": Fore.MAGENTA,
+        "cyan": Fore.CYAN,
+        "white": Fore.WHITE,
+    }
+    color_code = colors[color]
+    print("\n" + message)
+
+    # Handle list vs dictionary input
+    if isinstance(filelist, List):
+        # For lists, print just the filename
+        for item in filelist:
+            print(f"{color_code} {item}{Style.RESET_ALL}")
+    else:
+        # For dictionaries, print filename and not hash (sadly git does not display the hash so I shall not either)
+        for key in filelist.keys():
+            print(f"{color_code} {key}{Style.RESET_ALL}")
+
+
+def check_for_initial_commit(func):
+    def wrapper(*args, **kwargs):
+        objects =  Path(".minigit/objects")
+        if any(f.is_file() for f in objects.rglob("*")): # if there are objects then a commit has been made so we can continue
+            result = func(*args, **kwargs)
+            return result
+        else:
+            print("No commits have been made yet.")
+
+    return wrapper

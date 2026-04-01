@@ -5,7 +5,6 @@ init, stage, empty, commit
 """
 
 from pathlib import Path
-import datetime
 import pickle
 import hashlib
 import getpass
@@ -15,8 +14,23 @@ import os
 import json
 from commands.basic_commands import empty
 
+def get_current_wd_to_initialize_repo(directory):
+        # Get current working directory and construct path to .minigit directory
+    if directory == None:
+        current_dir = Path.cwd()
+    elif directory.exists():
+        current_dir = dir
+    else:
+        directory.mkdir(parents=True, exist_ok=True)
+        current_dir = directory
+    
+    minigit_dir = current_dir / ".minigit"
 
-def init(dir = None):
+    return current_dir, minigit_dir
+
+
+
+def init(directory = None):
     """
     Initialize a new MiniGit repository in the current directory.
 
@@ -28,16 +42,9 @@ def init(dir = None):
     - HEAD: Points to the current commit
     - master: Default branch
     """
+
     # Get current working directory and construct path to .minigit directory
-    if dir == None:
-        current_dir = Path.cwd()
-    elif dir.exists():
-        current_dir = dir
-    else:
-        dir.mkdir(parents=True, exist_ok=True)
-        current_dir = dir
-    
-    minigit_dir = current_dir / ".minigit"
+    current_dir, minigit_dir = get_current_wd_to_initialize_repo(directory)
 
     # Check if repository already exists to avoid overwriting
     if minigit_dir.exists():
@@ -56,48 +63,12 @@ def init(dir = None):
     minigitignore_path = current_dir / ".minigitignore"
     with open(minigitignore_path, "w") as f:
         pass
-
-    # Get the author using getpass to get the username
-    username = getpass.getuser()
-
-    # Create the initial commit object (empty repository state)
-    initial_commit = Commit(
-        message = "initial commit",
-        author = username,
-        parent = [],  # No parent since this is the first commit
-        files = {}  # No files tracked in initial commit
-    )
-
-    # Serialize the commit object to bytes using pickle
-    # This converts the Python object to a byte stream that can be stored on disk
-    initial_commit_data = pickle.dumps(initial_commit)
-
-    # Generate SHA-1 hash of the commit data to create a unique identifier
-    # This hash serves as the commit ID and filename
-    initial_commit_hash = hashlib.sha1(initial_commit_data).hexdigest()
-
-    # Create subdirectory using first 2 characters of hash (git-style optimization)
-    # This prevents having too many files in a single directory
-    # e.g., if hash is "abc123...", creates ".minigit/objects/commits/ab/"
-    object_subdir = minigit_dir / "objects" / "commits" / initial_commit_hash[:2]
-    object_subdir.mkdir()
-    commit_file = object_subdir / initial_commit_hash
-
-    # Write the serialized commit data to the commit file
-    # The file is named using the full commit hash
-    with open(commit_file, "wb") as f:  # "wb" mode for writing binary data
-        f.write(initial_commit_data) # initial_commit_data is in bytes
-
-    # Create the master branch and make it point to the initial commit
-    # Branch files contain the hash of the commit they point to
-    master_branch = minigit_dir / "refs" / "heads" / "master"
-    with open(master_branch, "w") as f:  # "w" mode for writing text
-        f.write(initial_commit_hash) # the hash is just text
+    
 
     # Create HEAD file to track current commit and branch
     # HEAD stores [current_commit_hash, current_branch_name]
     HEAD_path = minigit_dir / "HEAD"
-    head_content = "ref: refs/heads/master" # Stored like this for portability
+    head_content = "ref: refs/heads/master" # Symbolic reference to a branch that doesn't exist yet
     with open(HEAD_path, "w") as f:
         f.write(head_content)  # Store as pickled list for easy modification later
 
@@ -223,6 +194,8 @@ def commit(commit_message):
     5. Saves it to the objects directory
     6. Updates HEAD to point to the new commit
     """
+
+
     # Load the current staging area to see what changes are ready to commit
     _, staging_area_additions, staging_area_removals = utils.get_staging_area()
 

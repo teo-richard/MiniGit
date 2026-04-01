@@ -8,52 +8,60 @@ from pathlib import Path
 import hashlib
 from datetime import datetime
 import os
-from colorama import Fore, Style, init
-from typing import List
 import utils
 from utils import Commit
-
-def print_status(filelist: dict | list, message:str, color:str) -> bool:
-    """
-    Print a formatted list of files with color coding.
-
-    Args:
-        filelist: Either a dictionary {filename: hash} or list of filenames
-        message: Header message to display before the file list
-        color: Color name for the output (red, green, yellow, blue, magenta, cyan, white)
-
-    Returns:
-        bool: Always returns True (currently unused)
-    """
-    # Map color names to colorama color codes
-    colors = {
-        "red": Fore.RED,
-        "green": Fore.GREEN,
-        "yellow": Fore.YELLOW,
-        "blue": Fore.BLUE,
-        "magenta": Fore.MAGENTA,
-        "cyan": Fore.CYAN,
-        "white": Fore.WHITE,
-    }
-    color_code = colors[color]
-    print("\n" + message)
-
-    # Handle list vs dictionary input
-    if isinstance(filelist, List):
-        # For lists, print just the filename
-        for item in filelist:
-            print(f"{color_code} {item}{Style.RESET_ALL}")
-    else:
-        # For dictionaries, print hash and filename
-        for key, value in filelist.items():
-            print(f"{color_code} {value} {key}{Style.RESET_ALL}")
+from utils import print_status
+from collections import defaultdict
 
 
 
 
+def collapse(all_tracked, not_tracked):
+    all_tracked_file_parts_aggregated = set()
+    for tracked_file in all_tracked:
+        tracked_file_parts = tracked_file.split("/")
+        all_tracked_file_parts_aggregated = all_tracked_file_parts_aggregated | set(tracked_file_parts)
+    all_tracked_file_parts_aggregated = list(all_tracked_file_parts_aggregated)
+
+    no_collapse = set()
+    dirs = [] 
+    for file in not_tracked:
+        not_tracked_file_parts = file.split("/")
+        if len(not_tracked_file_parts) == 1:
+            no_collapse = no_collapse | set(not_tracked_file_parts)
+        else:
+            for i in range(0, len(not_tracked_file_parts)):
+                if (not_tracked_file_parts[i] not in all_tracked_file_parts_aggregated):
+                    file_to_add_to_dirs = ""
+                    for part in range(0, i+1):
+                        file_to_add_to_dirs = file_to_add_to_dirs + not_tracked_file_parts[part] + "/"
+                    if file_to_add_to_dirs not in dirs:
+                        dirs.append(file_to_add_to_dirs)
+                else:
+                    continue
+                break
+
+    no_collapse = list(no_collapse)
+            
+    return no_collapse, dirs
 
 
-def status():
+def status_general():
+    _, staging_area_additions, staging_area_removals = utils.get_staging_area()
+
+    if staging_area_additions:
+        print_status(staging_area_additions,
+                    "Files in staging area to be added to the next commit:",
+                    "green")
+    if staging_area_removals:
+        print_status(staging_area_removals,
+                    "Files in staging area to be removed in the next commit:",
+                    "blue")
+        
+    status_files(staging_area_additions, staging_area_removals)
+
+@utils.check_for_initial_commit
+def status_files(staging_area_additions, staging_area_removals):
     """
     Display the current repository status.
 
@@ -75,8 +83,6 @@ def status():
     # This has been refactored into a utility function to avoid code duplication
     directory_files = utils.get_directory_files_dictionary(".")
 
-    # Load the staging area (index) to see what's been staged for next commit
-    _, staging_area_additions, staging_area_removals = utils.get_staging_area()
 
     head_tuple = utils.check_head()
     prev_commit_hash = head_tuple[4] # Hash of previous commit
@@ -95,12 +101,20 @@ def status():
         staging_area_additions, 
         staging_area_removals,
         prev_commit_files)
+    
+    # Intermediate step: collect all tracked files (including those in the staging area):
+    all_tracked = list(set(unmodified_tracked_not_staged.keys() | modified_tracked_not_staged.keys()) | set(staging_area_additions) | set(staging_area_removals))
 
     # Step 3: Find completely untracked files (never been committed or staged)
     not_tracked = {k: v for k, v in directory_files.items()
                     if k not in staging_area_additions  # Not staged for addition
                     and k not in staging_area_removals  # Not staged for removal
                     and k not in prev_commit_files}  # Not in previous commit
+    
+    # Collapse untracked files into their directories
+    not_collapsed, collapsed_dirs = collapse(all_tracked, not_tracked.keys())
+    not_tracked_updated = not_collapsed + collapsed_dirs
+
 
     # Display all categorized files with appropriate colors
     # Extract HEAD state information from the tuple
@@ -114,27 +128,24 @@ def status():
     else:
         print(f"\nHead attached to {branch_name} branch.")
 
-    print_status(staging_area_additions,
-                 "Files in staging area to be added to the next commit:",
-                 "green")
 
-    print_status(staging_area_removals,
-                 "Files in staging area to be removed in the next commit:",
-                 "blue")
-
-    print_status(unmodified_tracked_not_staged,
-                 "Tracked files not in staging area that have NOT been modified since last commit:",
-                 "cyan")
-
-    print_status(modified_tracked_not_staged,
-                 "Tracked files not in staging area that HAVE been modified since last commit:",
-                 "yellow")
-
-    print_status(not_tracked,
-                 "Files that are not tracked:",
-                 "red")
-
-    print("\nI hope you enjoyed this status update. I sure did!\n")
+    if unmodified_tracked_not_staged or modified_tracked_not_staged or not_tracked_updated:
+        if unmodified_tracked_not_staged:
+            print_status(unmodified_tracked_not_staged,
+                        "Tracked files not in staging area that have NOT been modified since last commit:",
+                        "cyan")
+        if modified_tracked_not_staged:
+            print_status(modified_tracked_not_staged,
+                        "Tracked files not in staging area that HAVE been modified since last commit:",
+                        "yellow")
+        if not_tracked_updated:
+            print_status(not_tracked_updated,
+                        "Files that are not tracked:",
+                        "red")
+        
+        print("\nI hope you enjoyed this status update. I sure did!\n")
+    else:
+        print("There are NO STATUS UPDATES! GO DO SOMETHING WITH YOUR LIFE!!")
 
 def display_commit_details(commit):
     print(f"{commit.timestamp.strftime("%Y-%m-%d %H:%M:%S")} \n")

@@ -98,8 +98,9 @@ class TestCheckIgnore:
     def test_minigit_dir_always_ignored(self, repo):
         assert utils.check_ignore(".minigit/HEAD") is True
 
-    def test_minigitignore_file_always_ignored(self, repo):
-        assert utils.check_ignore(".minigitignore") is True
+    def test_minigitignore_file_not_ignored_by_default(self, repo):
+        # .minigitignore is a normal tracked file (like .gitignore in real git)
+        assert utils.check_ignore(".minigitignore") is False
 
     def test_regular_file_not_ignored(self, repo):
         assert utils.check_ignore("regular.txt") is False

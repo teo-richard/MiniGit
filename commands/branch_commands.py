@@ -13,7 +13,7 @@ from utils import CommitNotFoundError
 import os
 from utils import Commit
 
-def checkout_commit(checkout_hash):
+def checkout_commit(checkout_hash, print_detached=True):
     """
     Checkout a specific commit by its hash, creating a detached HEAD state.
 
@@ -64,10 +64,12 @@ def checkout_commit(checkout_hash):
     with open(".minigit/HEAD", "w") as f:
         f.write(checkout_hash)
 
-    print("\nWARNING. You are in a DETACHED head state." \
-        "To create a new branch, use 'minigit switch -c <branch_name>'." \
-        "\nThen, you may commit new changes with 'minigit commit -m <commite message>'." \
-        "\nOr, to get back to an existing branch, use 'minigit switch <branch name>'.")
+    if print_detached: # check detached head state
+        print("\nWARNING. You are in a DETACHED head state. " \
+            "To create a new branch, use 'minigit switch -c <branch_name>'." \
+            "\nThen, you may commit new changes with 'minigit commit -m <commite message>'." \
+            "\nOr, to get back to an existing branch, use 'minigit switch <branch name>'.")
+        
 
 def checkout_branch_instead_of_commit(checkout_hash, error_message):
     # This is if the user passes a branch name to checkout_commit() instead of a hash like they're SUPPOSED to
@@ -102,7 +104,7 @@ def branch_switch(branch_name):
         commit_hash_path = Path(".minigit") / "objects" / "commits" / commit_hash[:2] / commit_hash
 
         # Checkout the commit (this restores files and creates a detached HEAD)
-        checkout_commit(commit_hash)
+        checkout_commit(commit_hash, print_detached=False)
 
         # Re-attach HEAD to the branch reference instead of pointing directly to the commit
         # Format: "refs: refs/heads/branch_name" indicates HEAD points to a branch

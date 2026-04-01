@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 """
 MiniGit - A simple version control system
 Entry point for the MiniGit CLI application.
@@ -7,6 +9,15 @@ from commands import main_commands, info_commands, basic_commands, branch_comman
 import argparse
 import utils
 from utils import CommitNotFoundError
+import subprocess
+import os
+
+VOICE_RECORDINGS_DIR = os.path.join(os.path.dirname(__file__), "voice_recordings")
+
+def speak(command):
+       path = f"VOICE_RECORDINGS_DIR/minigit_{command}.m4a"
+       if os.path.exists(path):
+           subprocess.run(["afplay", path])
 
 
 def _handle_empty(args):
@@ -42,8 +53,10 @@ def _handle_switch(args):
 def _handle_branch(args):
         if args.delete:
             branch_commands.branch_delete(args.branch)
-        else:
+        elif len(args.branch) == 0:
             branch_commands.branch_list()
+        else:
+            print("Command not recognized. Did you mean --delete?")
 
 def _handle_reset(args):
     if args.hard:
@@ -188,7 +201,7 @@ def main():
         "remove": lambda args: main_commands.stage(args.files, "removals"),
         "empty": _handle_empty,
         "commit": _handle_commit,
-        "status": lambda args: info_commands.status(),
+        "status": lambda args: info_commands.status_general(),
         "log": _handle_log,
         "checkout": lambda args: branch_commands.checkout_commit(checkout_hash = args.hash),
         "switch": _handle_switch,
@@ -205,6 +218,7 @@ def main():
     }
 
     if args.command in dispatch:
+        speak(args.command)
         dispatch[args.command](args)
 
 
