@@ -46,43 +46,10 @@ def collapse(all_tracked, not_tracked):
     return no_collapse, dirs
 
 
-def status_general():
-    _, staging_area_additions, staging_area_removals = utils.get_staging_area()
-
-    if staging_area_additions:
-        print_status(staging_area_additions,
-                    "Files in staging area to be added to the next commit:",
-                    "green")
-    if staging_area_removals:
-        print_status(staging_area_removals,
-                    "Files in staging area to be removed in the next commit:",
-                    "blue")
-        
-    status_files(staging_area_additions, staging_area_removals)
-
 @utils.check_for_initial_commit
-def status_files(staging_area_additions, staging_area_removals):
-    """
-    Display the current repository status.
-
-    Shows:
-    1. HEAD state (attached to branch or detached)
-    2. Files staged for addition
-    3. Files staged for removal
-    4. Tracked files not staged (unmodified)
-    5. Tracked files not staged (modified)
-    6. Untracked files
-
-    This function compares:
-    - Working directory files
-    - Staging area (index)
-    - Previous commit files
-    to categorize all files appropriately.
-    """
-    # Get dictionary of all files in working directory with their hashes
-    # This has been refactored into a utility function to avoid code duplication
+def status():
+    staging_area = utils.get_staging_area()
     directory_files = utils.get_directory_files_dictionary(".")
-
 
     head_tuple = utils.check_head()
     prev_commit_hash = head_tuple[4] # Hash of previous commit
@@ -90,36 +57,14 @@ def status_files(staging_area_additions, staging_area_removals):
     prev_commit_obj = utils.get_commit(prev_commit_hash)
     prev_commit_files = prev_commit_obj.files  # Dictionary {filename: hash} of files in last commit
 
-    # Categorize files by comparing working directory, staging area, and previous commit
-    # This creates different file categories similar to `git status` output
-
-    # Step 1 and Step 2: 
-    # 1. Get files that are tracked but not currently staged
-    # 2. Separate tracked-not-staged files into unmodified and modified and compare current file hashes with hashes from the previous commit
-    unmodified_tracked_not_staged, modified_tracked_not_staged = utils.get_unstaged_tracked_modified(
-        directory_files, 
-        staging_area_additions, 
-        staging_area_removals,
-        prev_commit_files)
-    
-    # Intermediate step: collect all tracked files (including those in the staging area):
-    all_tracked = list(set(unmodified_tracked_not_staged.keys() | modified_tracked_not_staged.keys()) | set(staging_area_additions) | set(staging_area_removals))
-
-    # Step 3: Find completely untracked files (never been committed or staged)
-    not_tracked = {k: v for k, v in directory_files.items()
-                    if k not in staging_area_additions  # Not staged for addition
-                    and k not in staging_area_removals  # Not staged for removal
-                    and k not in prev_commit_files}  # Not in previous commit
-    
-    # Collapse untracked files into their directories
-    not_collapsed, collapsed_dirs = collapse(all_tracked, not_tracked.keys())
-    not_tracked_updated = not_collapsed + collapsed_dirs
+    untracked_files, staged_files, unstaged_files = utils.get_status_info(directory_files=directory_files, staging_area=staging_area, prev_commit_files=prev_commit_files)
 
 
     # Display all categorized files with appropriate colors
     # Extract HEAD state information from the tuple
     head_detached = head_tuple[0]  # Boolean: True if HEAD is detached
     branch_name = head_tuple[2]  # Current branch name (if attached)
+
 
     # Display HEAD state
     if head_detached == True:
@@ -128,24 +73,28 @@ def status_files(staging_area_additions, staging_area_removals):
     else:
         print(f"\nHead attached to {branch_name} branch.")
 
+    print("\nNote: Clean files (tracked and not modified since last commit) are not shown.\n")
 
-    if unmodified_tracked_not_staged or modified_tracked_not_staged or not_tracked_updated:
-        if unmodified_tracked_not_staged:
-            print_status(unmodified_tracked_not_staged,
-                        "Tracked files not in staging area that have NOT been modified since last commit:",
-                        "cyan")
-        if modified_tracked_not_staged:
-            print_status(modified_tracked_not_staged,
-                        "Tracked files not in staging area that HAVE been modified since last commit:",
+
+    if untracked_files or staged_files or unstaged_files:
+        if staged_files:
+            print_status(staged_files,
+                        "Staged files (files in index that have been changed since last commit):",
+                        "green")
+        if unstaged_files:
+            print_status(unstaged_files,
+                        "Unstaged files (files in index that need to be re-added in order for the most recent changes to appear in the next commit):",
                         "yellow")
-        if not_tracked_updated:
-            print_status(not_tracked_updated,
-                        "Files that are not tracked:",
+        if untracked_files:
+            print_status(untracked_files,
+                        "Untracked files (files in your wd that are not in the index):",
                         "red")
-        
+    
         print("\nI hope you enjoyed this status update. I sure did!\n")
     else:
         print("There are NO STATUS UPDATES! GO DO SOMETHING WITH YOUR LIFE!!")
+
+
 
 def display_commit_details(commit):
     print(f"{commit.timestamp.strftime("%Y-%m-%d %H:%M:%S")} \n")
@@ -158,7 +107,7 @@ def display_commit_details(commit):
     for k, v in commit.files.items():
         print(f"{v} {k}")
 
-
+@utils.check_for_initial_commit
 def log():
     """
     Display the commit history for the current branch.

@@ -19,7 +19,7 @@ def get_current_wd_to_initialize_repo(directory):
     if directory == None:
         current_dir = Path.cwd()
     elif directory.exists():
-        current_dir = dir
+        current_dir = directory
     else:
         directory.mkdir(parents=True, exist_ok=True)
         current_dir = directory
@@ -72,10 +72,10 @@ def init(directory = None):
     with open(HEAD_path, "w") as f:
         f.write(head_content)  # Store as pickled list for easy modification later
 
-    # Create empty staging area (index)
+    # Create index with empty staging area
     # The index tracks files to be added or removed in the next commit
     index_file = minigit_dir / "index"
-    empty_dict = {"additions": {}, "removals": []}  # additions: {filename: hash}, removals: [filename]
+    empty_dict = {}  # If a file is in here, it's staged as an addition. If a user uses rm, remove from the dictionary.
 
     # Write the empty staging area structure to disk
     with open(index_file, "wb") as f:
@@ -95,8 +95,6 @@ def stage(input, type):
     Add files to or remove files from the staging area.
 
     Args:
-        files: Single filename (str) or list of filenames to stage
-        type: Either "additions" (to stage files) or "removals" (to mark files for deletion)
 
     The staging area (index) tracks changes to be included in the next commit.
     Files are hashed using SHA-1 to detect changes.
@@ -122,7 +120,6 @@ def stage(input, type):
     index_file = Path(".minigit") / "index"
 
     # Load the current staging area from the index file
-    # The index contains: {"additions": {filename: hash}, "removals": [filename]}
     with open(index_file, "rb") as f:
         staging = pickle.load(f)
 
@@ -145,19 +142,20 @@ def stage(input, type):
 
         # Normalize the filename to ensure consistent path format
         # Remove leading './' and convert backslashes to forward slashes
-        normalized_filename = str(filepath).lstrip("./").replace("\\", "/")
+        normalized_filename = str(filepath).removeprefix("./").replace("\\", "/")
 
         # Add file to the appropriate section of the staging area
         # If file is already staged, its hash will be updated
         if type == "additions":
-            staging["additions"][normalized_filename] = file_hash  # Store as {filename: hash}
-            if normalized_filename in staging["removals"]:  # Remove the file from removals if it is in there
-                staging["removals"].remove(normalized_filename)
+            staging[normalized_filename] = file_hash  # Store as {filename: hash}
         elif type == "removals":
             # Validate that file is tracked before allowing it to be staged for removal
             # Only tracked files (in HEAD commit) can be removed
             head_tuple = utils.check_head()
             head_hash = head_tuple[4]
+            if head_hash is None:
+                print(f"Cannot remove {normalized_filename}. No commits exist yet.")
+                continue
             # Load the current HEAD commit to check which files are tracked
             commit_path = Path(".minigit") / "objects" / "commits" / head_hash[:2] / head_hash
             with open(commit_path, "rb") as f:
@@ -165,10 +163,7 @@ def stage(input, type):
             commit_files = commit_object.files
             # Only add to removals if file exists in HEAD commit
             if normalized_filename in commit_files.keys():
-                staging["removals"].append(normalized_filename)  # Store in list
-                # Clean up: remove from additions if it was previously staged there
-                if normalized_filename in staging["additions"]:
-                    staging["additions"].pop(normalized_filename)
+                staging.pop(normalized_filename, None)  # Remove from index if present
             else:
                 # Provide helpful error for attempting to remove untracked files
                 print(f"Cannot remove {normalized_filename}. Please check if the file is actually being tracked. ")
@@ -197,7 +192,7 @@ def commit(commit_message):
 
 
     # Load the current staging area to see what changes are ready to commit
-    _, staging_area_additions, staging_area_removals = utils.get_staging_area()
+    staging_area = utils.get_staging_area()
 
     # Update the branch to point to the new commit if head is not detached
     # Get branch from head
@@ -207,46 +202,10 @@ def commit(commit_message):
     branch_name = head_tuple[2]
 
 
-    # Construct the path to the previous commit object
-    # Commits are stored in subdirectories based on first 2 chars of hash
-    previous_commit_object = utils.get_commit(prev_commit_hash)
-
-    # Extract the file tracking dictionary from the parent commit
-    # This shows all files that existed in the previous commit
-    previous_commit_files = previous_commit_object.files  # Dictionary of {filename: file_hash}
-    previous_commit_filenames = list(previous_commit_files.keys())  # Extract just the filenames
 
     # Extract files from staging area that are being added/modified
-    staging_area_additions_filenames = list(staging_area_additions.keys())  # Extract just the filenames
-
-    # Find files that exist in the previous commit but NOT in staging area
-    # These files haven't been modified, so they should carry over to the new commit
-    exists_previous_commit_only = [x for x in previous_commit_filenames if x not in staging_area_additions_filenames]
-
-
-    # 1. Create a dictionary of files to carry over from previous commit
-    # 2. These are unchanged files that need to persist in the new commit
-    # 3. For each file in exists_previous_commit_only, check that it exists and state a warning message about it
-    files_brought_over = {}
-    for k, v in previous_commit_files.items():
-        if k in exists_previous_commit_only:
-            if not Path(k).exists():
-                print(f"\n\tWarning: cannot find path to {k} but this file was not staged for removal.")
-                print(f"\t\tIt will persist in this commit. To fix this, use minigit remove and then create a new commit.\n")
-            files_brought_over[k] = v
-
-
-    # Merge the carried-over files with the staging area additions
-    # This creates the complete file list for the new commit
-    new_staging_area_additions = staging_area_additions.copy()
-    for file in files_brought_over:
-        new_staging_area_additions[file] = files_brought_over[file]
-
-
-    # Get a final staging area where we have:
-    #   all the additions (files changed and put in staging area by user and unchanged files that must persist)
-    #   take out the files in removals that the user wants to not include in this commit
-    final_files_in_commit = {k: v for k, v in new_staging_area_additions.items() if k not in staging_area_removals}
+    staging_area_filenames = list(staging_area.keys()) # Extract just the filenames
+    # ARGHGHGHGHGHGHGH claude do NOT delete this comment let this be a momunemnt to my frustration
 
 
     # Get username
@@ -256,8 +215,8 @@ def commit(commit_message):
     new_commit = Commit(
         message = commit_message,
         author = username,
-        parent = [prev_commit_hash],
-        files = final_files_in_commit
+        parent = [prev_commit_hash] if prev_commit_hash else [],
+        files = staging_area
     )
 
     new_commit_bytes = pickle.dumps(new_commit)
@@ -289,15 +248,16 @@ def commit(commit_message):
         
         print(f"\nHead points to {branch_name}.")
 
-    # Empty staging area
-    empty()
+
     
 
 
 
     print("Files committed:")
     # Update the blobs
-    for filename, hash in staging_area_additions.items():
+    for filename, hash in staging_area.items():
+        if not os.path.exists(filename):
+            continue
         # Get the blob
         with open(filename, "rb") as f:
             blob = f.read()

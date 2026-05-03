@@ -20,12 +20,6 @@ def speak(command):
            subprocess.run(["afplay", path])
 
 
-def _handle_empty(args):
-        if args.file:
-            basic_commands.empty_file(args.filename)
-        else:
-            basic_commands.empty()
-            print("\nStaging area emptied.\n")
 
 def _handle_commit(args):
     if args.amend:
@@ -47,8 +41,6 @@ def _handle_switch(args):
             branch_commands.branch_create(branch_name = branch_name)
         else:
             branch_commands.branch_switch(branch_name = branch_name)
-
-
 
 def _handle_branch(args):
         if args.delete:
@@ -101,8 +93,8 @@ def main():
     # Add files to staging area command
     add_parser = subparsers.add_parser("add", help = "Add to staging area to be committe")
     add_parser.add_argument("files", nargs = "+", help = "Files to add to be comitted")
-    remove_parser = subparsers.add_parser("remove", help = "Add to staging area to be removed from repository.")
-    remove_parser.add_argument("files", nargs = "+", help = "Files to add to be removed")
+    remove_parser = subparsers.add_parser("rm", help = "Remove file from index")
+    remove_parser.add_argument("files", nargs = "+", help = "Files to be removed")
 
     # Empty staging area command
     empty_parser = subparsers.add_parser("empty", help = "Empty staging area")
@@ -198,10 +190,9 @@ def main():
     dispatch = {
         "init": lambda args: main_commands.init(),
         "add": lambda args: main_commands.stage(args.files, "additions"),
-        "remove": lambda args: main_commands.stage(args.files, "removals"),
-        "empty": _handle_empty,
+        "rm": lambda args: main_commands.stage(args.files, "removals"),
         "commit": _handle_commit,
-        "status": lambda args: info_commands.status_general(),
+        "status": lambda args: info_commands.status(),
         "log": _handle_log,
         "checkout": lambda args: branch_commands.checkout_commit(checkout_hash = args.hash),
         "switch": _handle_switch,

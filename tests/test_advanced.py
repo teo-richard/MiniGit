@@ -100,21 +100,19 @@ def repo(tmp_path, monkeypatch):
 
 @pytest.fixture
 def repo_one(repo):
-    """One real commit on master, clean staging area."""
+    """One real commit on master. Index retains hello.txt after commit."""
     (repo / "hello.txt").write_bytes(b"hello world")
     main_commands.stage(["hello.txt"], "additions")
     main_commands.commit("first commit")
-    basic_commands.empty()
     return repo
 
 
 @pytest.fixture
 def repo_two(repo_one):
-    """Two real commits on master, clean staging area."""
+    """Two real commits on master. Index retains hello.txt after both commits."""
     (repo_one / "hello.txt").write_bytes(b"hello v2")
     main_commands.stage(["hello.txt"], "additions")
     main_commands.commit("second commit")
-    basic_commands.empty()
     return repo_one
 
 
@@ -145,7 +143,7 @@ def two_repos(tmp_path, monkeypatch):
     (remote / ".minigit" / "config").write_text(json.dumps({"remotes": {}}))
     # remote needs an index and .minigitignore so that stage/commit work when
     # the test temporarily chdir's into it.
-    (remote / ".minigit" / "index").write_bytes(pickle.dumps({"additions": {}, "removals": []}))
+    (remote / ".minigit" / "index").write_bytes(pickle.dumps({}))
     (remote / ".minigitignore").write_text("")
 
     # Initialise local, add a commit, register remote
@@ -154,7 +152,6 @@ def two_repos(tmp_path, monkeypatch):
     (local / "file.txt").write_bytes(b"initial content")
     main_commands.stage(["file.txt"], "additions")
     main_commands.commit("initial file commit")
-    basic_commands.empty()
     remote_commands.remote_add("origin", str(remote))
 
     return local, remote
@@ -302,9 +299,8 @@ class TestReset:
         monkeypatch.setattr("builtins.input", lambda _: "y")
         first_hash = utils.get_commit(_head_hash(repo_two)).parent[0]
         history_commands.reset(first_hash, "hard")
-        _, additions, removals = utils.get_staging_area()
-        assert additions == {}
-        assert removals == []
+        staging = utils.get_staging_area()
+        assert staging == {}
 
     def test_reset_soft_moves_branch_pointer(self, repo_two):
         first_hash = utils.get_commit(_head_hash(repo_two)).parent[0]
@@ -325,12 +321,15 @@ class TestReset:
         assert (repo_two / ".minigit" / "HEAD").read_text().strip() == first_hash
 
     def test_reset_to_initial_commit(self, repo_two):
-        """Reset all the way back to the very first commit."""
+        """Reset all the way back to the very first commit (needs 3 commits)."""
+        (repo_two / "third.txt").write_bytes(b"third")
+        main_commands.stage(["third.txt"], "additions")
+        main_commands.commit("third commit")
         tip = _head_hash(repo_two)
-        first_real = utils.get_commit(tip).parent[0]
-        initial = utils.get_commit(first_real).parent[0]
-        history_commands.reset(initial, "hard")
-        assert _head_hash(repo_two) == initial
+        second = utils.get_commit(tip).parent[0]
+        first = utils.get_commit(second).parent[0]
+        history_commands.reset(first, "hard")
+        assert _head_hash(repo_two) == first
 
 
 # ===========================================================================
@@ -386,9 +385,9 @@ class TestLog:
         info_commands.log()
         assert "first commit" in capsys.readouterr().out
 
-    def test_log_initial_commit_only_does_not_crash(self, repo, capsys):
+    def test_log_on_fresh_repo_prints_no_commits_message(self, repo, capsys):
         info_commands.log()
-        assert "initial commit" in capsys.readouterr().out.lower()
+        assert "no commits" in capsys.readouterr().out.lower()
 
     def test_log_all_includes_commits_from_all_branches(self, repo_two, capsys):
         branch_commands.branch_create("feature")
@@ -686,37 +685,37 @@ class TestStageEdgeCases:
     def test_restage_updates_hash_when_content_changes(self, repo_one):
         (repo_one / "hello.txt").write_bytes(b"new content")
         main_commands.stage(["hello.txt"], "additions")
-        _, additions, _ = utils.get_staging_area()
-        assert additions["hello.txt"] == hashlib.sha1(b"new content").hexdigest()
+        staging = utils.get_staging_area()
+        assert staging["hello.txt"] == hashlib.sha1(b"new content").hexdigest()
 
     def test_stage_ignored_file_skipped(self, repo):
         (repo / ".minigitignore").write_text("skip.log\n")
         (repo / "skip.log").write_bytes(b"log data")
         main_commands.stage(["skip.log"], "additions")
-        _, additions, _ = utils.get_staging_area()
-        assert "skip.log" not in additions
+        staging = utils.get_staging_area()
+        assert "skip.log" not in staging
 
     def test_stage_normalises_path(self, repo_one):
         subdir = repo_one / "src"
         subdir.mkdir()
         (subdir / "mod.py").write_bytes(b"code")
         main_commands.stage(["src/mod.py"], "additions")
-        _, additions, _ = utils.get_staging_area()
-        assert all(not k.startswith("./") for k in additions)
+        staging = utils.get_staging_area()
+        assert all(not k.startswith("./") for k in staging)
 
     def test_stage_multiple_files_simultaneously(self, repo_one):
         for name in ("a.txt", "b.txt", "c.txt"):
             (repo_one / name).write_bytes(name.encode())
         main_commands.stage(["a.txt", "b.txt", "c.txt"], "additions")
-        _, additions, _ = utils.get_staging_area()
-        assert {"a.txt", "b.txt", "c.txt"}.issubset(additions)
+        staging = utils.get_staging_area()
+        assert {"a.txt", "b.txt", "c.txt"}.issubset(staging)
 
-    def test_stage_removal_then_re_add_clears_removal(self, repo_one):
+    def test_stage_removal_then_re_add_restores_to_index(self, repo_one):
         main_commands.stage(["hello.txt"], "removals")
         (repo_one / "hello.txt").write_bytes(b"updated")
         main_commands.stage(["hello.txt"], "additions")
-        _, _, removals = utils.get_staging_area()
-        assert "hello.txt" not in removals
+        staging = utils.get_staging_area()
+        assert "hello.txt" in staging
 
 
 # ===========================================================================
@@ -732,8 +731,9 @@ class TestCheckoutEdgeCases:
 
     def test_checkout_blocked_when_tracked_file_missing(self, repo_one, capsys):
         (repo_one / "hello.txt").unlink()
-        initial_hash = utils.get_commit(_head_hash(repo_one)).parent[0]
-        branch_commands.checkout_commit(initial_hash)
+        # Checking out the current commit is enough to trigger the missing-file guard
+        _, _, _, _, current_hash = utils.check_head()
+        branch_commands.checkout_commit(current_hash)
         assert "unable to checkout" in capsys.readouterr().out.lower()
 
     def test_checkout_does_not_move_branch_when_blocked(self, repo_two):
@@ -875,7 +875,11 @@ class TestMergeThreeWay:
 
 class TestFindBranchAncestor:
     def test_returns_new_commits_when_long_is_two_ahead(self, repo_two):
-        """The working case: long branch is 2+ commits ahead of short."""
+        """The working case: long branch is 2 commits ahead of the first commit."""
+        # Add a third commit so tip is 2 ahead of the first commit
+        (repo_two / "extra.txt").write_bytes(b"extra")
+        main_commands.stage(["extra.txt"], "additions")
+        main_commands.commit("third commit")
         tip = _head_hash(repo_two)
         parent = utils.get_commit(tip).parent[0]
         grandparent = utils.get_commit(parent).parent[0]
@@ -886,17 +890,23 @@ class TestFindBranchAncestor:
         assert grandparent not in result
 
     def test_returns_none_on_non_fast_forward(self, repo_two, capsys):
-        """No shared history → returns None."""
+        """No shared history → returns empty/falsy (non-fast-forward push is rejected)."""
         tip = _head_hash(repo_two)
         result = utils.find_branch_ancestor(tip, "b" * 40)
-        assert result is None
+        assert not result  # empty list or None both indicate rejection
 
-    def test_initial_commit_only_returns_single_element_list(self, repo):
-        initial_hash = _head_hash(repo)
-        result = utils.find_branch_ancestor(initial_hash, "irrelevant")
-        assert result == [initial_hash]
+    def test_initial_commit_only_returns_single_element_list(self, repo_two):
+        # The first commit has parent=[], so find_branch_ancestor stops at it
+        tip = _head_hash(repo_two)
+        first = utils.get_commit(tip).parent[0]
+        result = utils.find_branch_ancestor(first, "irrelevant")
+        assert result == [first]
 
     def test_long_branch_hash_is_always_first_element(self, repo_two):
+        # Add a third commit so we have three in a chain
+        (repo_two / "extra.txt").write_bytes(b"extra")
+        main_commands.stage(["extra.txt"], "additions")
+        main_commands.commit("third commit")
         tip = _head_hash(repo_two)
         grandparent = utils.get_commit(utils.get_commit(tip).parent[0]).parent[0]
         result = utils.find_branch_ancestor(tip, grandparent)

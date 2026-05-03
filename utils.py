@@ -12,6 +12,7 @@ from functools import wraps
 import json
 from colorama import Fore, Style, init
 from typing import List
+import getpass
 
 # Commit class represents a snapshot of the repository at a point in time
 class Commit:
@@ -50,6 +51,7 @@ def write_files_from_dictionary(file_dictionary):
             filecontent = f.read()
         # Write the content back to the working directory
         filepath = Path(filename)
+        filepath.parent.mkdir(parents=True, exist_ok=True)
         with open(filepath, "wb") as f:
             f.write(filecontent)
 
@@ -90,8 +92,11 @@ def check_head():
         branch_name = head.split("/")[-1]  # Extract just "branch_name"
         # Get path to branch file and read the commit hash it points to
         hash_path = Path(".minigit") / "refs" / "heads" / branch_name
-        with open(hash_path, "r") as f:
-            commit_hash = f.read().strip()
+        if hash_path.exists():
+            with open(hash_path, "r") as f:
+                commit_hash = f.read().strip()
+        else:
+            commit_hash = None  # fresh repo, no commits yet
 
     return head_detached, head, branch_name, hash_path, commit_hash
 
@@ -202,7 +207,7 @@ def get_directory_files_dictionary(subdir):
             # Compute SHA-1 hash to detect file changes
             file_hash = hashlib.sha1(file_byte).hexdigest()
             # Normalize path to remove leading './' and use forward slashes for consistency
-            normalized_path = filepath.lstrip("./").replace("\\", "/")
+            normalized_path = filepath.removeprefix("./").replace("\\", "/")
             directory_files[normalized_path] = file_hash
 
     return directory_files
@@ -225,7 +230,9 @@ def make_blob_current(files_dictionary):
         with open(blob_path, "rb") as f:
             blob = f.read()
         # Write to working directory
-        with open(filename, "wb") as f:
+        filepath = Path(filename)
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        with open(filepath, "wb") as f:
             f.write(blob)
 
 # Custom exception class
@@ -284,76 +291,72 @@ def get_staging_area():
     with open(".minigit/index", "rb") as f:
         staging_area = pickle.load(f)
 
-    staging_area_additions = staging_area["additions"]
-    staging_area_removals = staging_area["removals"]
 
-    return staging_area, staging_area_additions, staging_area_removals
+    return staging_area
 
 
 def get_tracked_files():
     # Get the files currently being tracked
     head_tuple = check_head()
     head_hash = head_tuple[4]
+    if head_hash is None:
+        return {}
     previous_commit_object = get_commit(head_hash)
     tracked_files = previous_commit_object.files
     return tracked_files
 
 
 def check_staging_area():
-    _, staging_area_additions, staging_area_removals = get_staging_area()
+    staging_area = get_staging_area()
 
-    if staging_area_additions or staging_area_removals:
-        if staging_area_additions:
-            print("\nWARNING: You have files in the staging area as additions:")
-            for i in staging_area_additions.keys():
-                print(f"\t{i}")
-        if staging_area_removals:
-            print("\nWARNING: You have files in the staging area as removals:")
-            for i in staging_area_removals.keys():
-                print(f"\t{i}")
+    if staging_area:
+        print("\nWARNING: You have files staged.")
+        for i in staging_area.keys():
+            print(f"\t{i}")
 
 
 
-def get_unstaged_tracked_modified(directory_files, staging_area_additions, staging_area_removals, prev_commit_files):
-    all_staged_files = list(staging_area_additions.keys()) + staging_area_removals  # All files in the staging area
-    not_staged = {k: v for k, v in directory_files.items() if k not in all_staged_files}  # Files in working dir but not staged
-    tracked_not_staged = {k: v for k, v in not_staged.items() if k in prev_commit_files.keys()}  # Not staged but in previous commit
 
-    # All the k, v pairs in `tracked_not_staged.items()` come from your directory files
-    unmodified_tracked_not_staged = {k: v for k, v in tracked_not_staged.items() if prev_commit_files.get(k) == v}  # Hash unchanged
-    modified_tracked_not_staged = {k: v for k, v in tracked_not_staged.items() if prev_commit_files.get(k) != v}  # Hash changed
+def get_status_info(directory_files, staging_area, prev_commit_files):
+        # 1. Untracked files: files not in index at all
+    untracked_files = [f for f in directory_files.keys() if f not in staging_area.keys()]
 
-    return unmodified_tracked_not_staged, modified_tracked_not_staged
+    # 2. Get staged files: Files whose hashes in the commit HEAD points to are different from the hashes in index
+    # - i.e. you've git add-ed something new since last commit
+    # So want files where hash of wd and hash of index may match (don't have to) but main condition is hash of index and hash of previous commit file do not match
+    staged_files = [f for f, h in staging_area.items() if
+                    h != prev_commit_files.get(f)] # Will match the wd hash 
+    
+
+
+    # 3. Unstaged files: files that won't be in the next commit unless you do git add file
+    # - i.e. you still need to git add these files in order to have the changes show up in the next commit
+    # So: need files in index whose hash does not match the wd hash
+    unstaged_files = [f for f, h in staging_area.items() if h != directory_files.get(f)]
+
+    return untracked_files, staged_files, unstaged_files
+
 
 def check_uncommitted_changes(func):
     @wraps(func)
     def check(*args, **kwargs):
-        _, staging_area_additions, staging_area_removals = get_staging_area()
-
+        staging_area = get_staging_area()
         directory_files = get_directory_files_dictionary(".")
-        prev_commit_hash = check_head()[4]
-        prev_commit_files = get_commit(prev_commit_hash).files
-
-        _, modified_tracked_not_staged = get_unstaged_tracked_modified(
-            directory_files, 
-            staging_area_additions, 
-            staging_area_removals, 
-            prev_commit_files
+        head_hash = check_head()[4]
+        prev_commit_files = get_commit(head_hash).files if head_hash else {}
+        untracked_files, staged_files, unstaged_files = get_status_info(
+            directory_files, staging_area, prev_commit_files
         )
 
-        if staging_area_additions or staging_area_removals or modified_tracked_not_staged:
-            print("\nWARNING: You have unstaged files that have uncommitted changes. ")
-            if staging_area_additions:
-                print("\tFiles in staging area as additions:")
-                for i in staging_area_additions.keys():
+        if staged_files or unstaged_files:
+            print("\nWARNING: You have uncommitted changes.")
+            if staged_files:
+                print("\tStaged files (need to commit to save changes made since last commit):")
+                for i in staged_files:
                     print(f"\t{i}")
-            if staging_area_removals:
-                print("\tFiles in staging area as removals")
-                for i in staging_area_removals:
-                    print(f"\t{i}")
-            if modified_tracked_not_staged:
-                print("\tFiles that are unstaged but have uncommitted changes:")
-                for i in modified_tracked_not_staged.keys():
+            if unstaged_files:
+                print("\tUnstaged files (need to add to staging area for your next commit to save changes):")
+                for i in unstaged_files:
                     print(f"\t{i}")
             
             while True:
@@ -391,11 +394,10 @@ def find_common_ancestor(commit1, commit1_hash, commit2):
     commit1_ancestors.add(commit1_hash)
 
 
-    # BFS queue starting from commit1's parent
+    # BFS: collect all ancestors of commit1 (following ALL parents for merge commits)
     if commit1.parent:
-        queue = [commit1.parent[0]]
+        queue = list(commit1.parent)
 
-        # Collect all ancestors of commit1 by walking backwards through history
         while queue:
             current = queue.pop(0)
             if current in commit1_ancestors:
@@ -405,35 +407,27 @@ def find_common_ancestor(commit1, commit1_hash, commit2):
             with open(next_commit_path, "rb") as f:
                 next_commit_object = pickle.load(f)
 
-            if next_commit_object.parent:
-                next_commit_parent = next_commit_object.parent[0]
-                queue.append(next_commit_parent) # Stops when we append the None parent from the initial commit
-            else:
-                break
+            for parent in next_commit_object.parent:
+                queue.append(parent)
 
-    else:
-        pass
-
-    # Walk backwards from commit2 to find the first hash that exists in commit1's ancestors
-    # The first match is the most recent common ancestor
+    # Walk backwards from commit2 (following ALL parents) to find the nearest common ancestor
     if commit2.parent:
-        queue = [commit2.parent[0]]
+        queue = list(commit2.parent)
         while queue:
             current = queue.pop(0)
             if current in commit1_ancestors:
-                    ancestor_hash = current
-                    ancestor_path = Path(".minigit") / "objects" / "commits" / ancestor_hash[:2] / ancestor_hash
-                    with open(ancestor_path, "rb") as f:
-                        ancestor_object = pickle.load(f)
-                    return ancestor_object, ancestor_hash
-            
+                ancestor_hash = current
+                ancestor_path = Path(".minigit") / "objects" / "commits" / ancestor_hash[:2] / ancestor_hash
+                with open(ancestor_path, "rb") as f:
+                    ancestor_object = pickle.load(f)
+                return ancestor_object, ancestor_hash
+
             next_commit_path = Path(".minigit") / "objects" / "commits" / current[:2] / current
             with open(next_commit_path, "rb") as f:
                 next_commit_object = pickle.load(f)
-            
-            if next_commit_object.parent:
-                next_commit_parent = next_commit_object.parent[0]
-                queue.append(next_commit_parent)
+
+            for parent in next_commit_object.parent:
+                queue.append(parent)
     
 
 def check_detached_head_state(func):
@@ -505,7 +499,7 @@ def get_remote_repo_and_branch(name, branch):
     return path_to_repo, path_to_remote_branch
 
 
-def print_status(filelist: dict | list, message:str, color:str) -> bool:
+def print_status(filelist: list, message:str, color:str) -> bool:
     """
     Print a formatted list of files with color coding.
 
@@ -530,24 +524,19 @@ def print_status(filelist: dict | list, message:str, color:str) -> bool:
     color_code = colors[color]
     print("\n" + message)
 
-    # Handle list vs dictionary input
-    if isinstance(filelist, List):
-        # For lists, print just the filename
-        for item in filelist:
-            print(f"{color_code} {item}{Style.RESET_ALL}")
-    else:
-        # For dictionaries, print filename and not hash (sadly git does not display the hash so I shall not either)
-        for key in filelist.keys():
-            print(f"{color_code} {key}{Style.RESET_ALL}")
+    for item in filelist:
+        print(f"{color_code} {item}{Style.RESET_ALL}")
 
 
 def check_for_initial_commit(func):
+    @wraps(func)
     def wrapper(*args, **kwargs):
-        objects =  Path(".minigit/objects")
-        if any(f.is_file() for f in objects.rglob("*")): # if there are objects then a commit has been made so we can continue
+        objects =  Path(".minigit/objects/commits")
+        if any(f.is_file() for f in objects.rglob("*")): # Check for anything in the commits folder
             result = func(*args, **kwargs)
             return result
         else:
             print("No commits have been made yet.")
+            return False
 
     return wrapper

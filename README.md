@@ -46,8 +46,3 @@ There are three test files in `tests/`:
 - `test_minigit.py` — core command tests
 - `test_advanced.py` — branching, merging, and remote tests
 - `test_edge_cases.py` — edge cases and error handling
-
-## Transparency Note
-
-1. All the docstrings and many comments in the code are written by Claude Code. However, since this is a learning project, all the actual code is mine. I do read nearly every comment that gets generated.
-2. All tests were written by Claude Code.

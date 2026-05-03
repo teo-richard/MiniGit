@@ -31,20 +31,20 @@ from commands import basic_commands, main_commands, branch_commands
 
 @pytest.fixture
 def repo(tmp_path, monkeypatch):
-    """Create an initialised MiniGit repo in a temp directory."""
+    """Initialised MiniGit repo with one empty initial commit on master."""
     monkeypatch.chdir(tmp_path)
     main_commands.init()
+    main_commands.commit("initial commit")
     return tmp_path
 
 
 @pytest.fixture
 def repo_with_file(repo):
-    """Repo that has one file staged and committed."""
+    """Repo that has one file staged and committed. Index persists (hello.txt stays in index)."""
     f = repo / "hello.txt"
     f.write_text("hello world")
     main_commands.stage(["hello.txt"], "additions")
     main_commands.commit("first real commit")
-    basic_commands.empty()
     return repo
 
 
@@ -145,26 +145,12 @@ class TestInit:
         head = (tmp_path / ".minigit" / "HEAD").read_text()
         assert head == "ref: refs/heads/master"
 
-    def test_creates_master_branch_file(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-        main_commands.init()
-        assert (tmp_path / ".minigit" / "refs" / "heads" / "master").exists()
-
     def test_creates_empty_staging_area(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
         main_commands.init()
         with open(".minigit/index", "rb") as f:
             index = pickle.load(f)
-        assert index == {"additions": {}, "removals": []}
-
-    def test_creates_initial_commit(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
-        main_commands.init()
-        _, _, _, _, head_hash = utils.check_head()
-        commit = utils.get_commit(head_hash)
-        assert commit.message == "initial commit"
-        assert commit.parent == []
-        assert commit.files == {}
+        assert index == {}
 
     def test_second_init_does_not_overwrite(self, tmp_path, monkeypatch, capsys):
         monkeypatch.chdir(tmp_path)
@@ -182,15 +168,15 @@ class TestStage:
     def test_stage_addition_appears_in_index(self, repo):
         (repo / "file.txt").write_text("content")
         main_commands.stage(["file.txt"], "additions")
-        _, additions, _ = utils.get_staging_area()
-        assert "file.txt" in additions
+        staging = utils.get_staging_area()
+        assert "file.txt" in staging
 
     def test_staged_file_hash_matches_content(self, repo):
         (repo / "file.txt").write_bytes(b"content")
         main_commands.stage(["file.txt"], "additions")
-        _, additions, _ = utils.get_staging_area()
+        staging = utils.get_staging_area()
         expected_hash = hashlib.sha1(b"content").hexdigest()
-        assert additions["file.txt"] == expected_hash
+        assert staging["file.txt"] == expected_hash
 
     def test_stage_nonexistent_file_prints_error(self, repo, capsys):
         main_commands.stage(["ghost.txt"], "additions")
@@ -204,16 +190,17 @@ class TestStage:
         assert "cannot remove" in captured.out.lower()
 
     def test_stage_removal_of_tracked_file(self, repo_with_file):
+        # rm removes the file from the index entirely
         main_commands.stage(["hello.txt"], "removals")
-        _, _, removals = utils.get_staging_area()
-        assert "hello.txt" in removals
+        staging = utils.get_staging_area()
+        assert "hello.txt" not in staging
 
-    def test_staging_addition_removes_from_removals(self, repo_with_file):
+    def test_staging_addition_after_removal_restores_to_index(self, repo_with_file):
         main_commands.stage(["hello.txt"], "removals")
         (repo_with_file / "hello.txt").write_text("updated")
         main_commands.stage(["hello.txt"], "additions")
-        _, _, removals = utils.get_staging_area()
-        assert "hello.txt" not in removals
+        staging = utils.get_staging_area()
+        assert "hello.txt" in staging
 
     def test_stage_directory_stages_all_files(self, repo):
         subdir = repo / "src"
@@ -221,9 +208,9 @@ class TestStage:
         (subdir / "a.py").write_text("a")
         (subdir / "b.py").write_text("b")
         main_commands.stage(["src"], "additions")
-        _, additions, _ = utils.get_staging_area()
-        assert any("a.py" in k for k in additions)
-        assert any("b.py" in k for k in additions)
+        staging = utils.get_staging_area()
+        assert any("a.py" in k for k in staging)
+        assert any("b.py" in k for k in staging)
 
 
 # ---------------------------------------------------------------------------
@@ -268,7 +255,6 @@ class TestCommit:
     def test_commit_removes_staged_removals(self, repo_with_file):
         main_commands.stage(["hello.txt"], "removals")
         main_commands.commit("remove file")
-        basic_commands.empty()
         _, _, _, _, head_hash = utils.check_head()
         commit = utils.get_commit(head_hash)
         assert "hello.txt" not in commit.files
@@ -291,29 +277,29 @@ class TestEmpty:
         (repo / "file.txt").write_text("hi")
         main_commands.stage(["file.txt"], "additions")
         basic_commands.empty()
-        _, additions, removals = utils.get_staging_area()
-        assert additions == {}
-        assert removals == []
+        staging = utils.get_staging_area()
+        assert staging == {}
 
     def test_empty_file_removes_specific_file(self, repo):
         (repo / "a.txt").write_text("a")
         (repo / "b.txt").write_text("b")
         main_commands.stage(["a.txt", "b.txt"], "additions")
         basic_commands.empty_file(["a.txt"])
-        _, additions, _ = utils.get_staging_area()
-        assert "a.txt" not in additions
-        assert "b.txt" in additions
+        staging = utils.get_staging_area()
+        assert "a.txt" not in staging
+        assert "b.txt" in staging
 
     def test_empty_file_not_in_staging_prints_error(self, repo, capsys):
         basic_commands.empty_file(["ghost.txt"])
         captured = capsys.readouterr()
         assert "cannot remove" in captured.out.lower()
 
-    def test_empty_file_removes_from_removals(self, repo_with_file):
+    def test_empty_file_restores_rm_file_to_index(self, repo_with_file):
+        # rm removes from index; empty_file should restore it from HEAD
         main_commands.stage(["hello.txt"], "removals")
         basic_commands.empty_file(["hello.txt"])
-        _, _, removals = utils.get_staging_area()
-        assert "hello.txt" not in removals
+        staging = utils.get_staging_area()
+        assert "hello.txt" in staging
 
 
 # ---------------------------------------------------------------------------
@@ -396,14 +382,12 @@ class TestCheckoutCommit:
         f.write_bytes(b"version 1")
         main_commands.stage(["data.txt"], "additions")
         main_commands.commit("v1")
-        basic_commands.empty()
         _, _, _, _, v1_hash = utils.check_head()
 
         # Commit v2
         f.write_bytes(b"version 2")
         main_commands.stage(["data.txt"], "additions")
         main_commands.commit("v2")
-        basic_commands.empty()
 
         # Checkout v1
         branch_commands.checkout_commit(v1_hash)
@@ -425,7 +409,6 @@ class TestCheckoutCommit:
         f.write_bytes(b"extra")
         main_commands.stage(["extra.txt"], "additions")
         main_commands.commit("add extra")
-        basic_commands.empty()
 
         # Checkout back to v1 (initial commit has no files)
         branch_commands.checkout_commit(v1_hash)
@@ -433,34 +416,39 @@ class TestCheckoutCommit:
 
 
 # ---------------------------------------------------------------------------
-# get_unstaged_tracked_modified
+# get_status_info
 # ---------------------------------------------------------------------------
 
-class TestGetUnstagedTrackedModified:
-    def test_unmodified_file_classified_correctly(self, repo_with_file):
-        # hello.txt was committed and not modified
-        _, additions, removals = utils.get_staging_area()
-        _, _, _, _, head_hash = utils.check_head()
-        prev_files = utils.get_commit(head_hash).files
-        directory_files = utils.get_directory_files_dictionary(".")
-        unmodified, modified = utils.get_unstaged_tracked_modified(
-            directory_files, additions, removals, prev_files
-        )
-        assert "hello.txt" in unmodified
-        assert "hello.txt" not in modified
-
-    def test_modified_file_classified_correctly(self, repo_with_file):
-        # Modify hello.txt without staging
+class TestGetStatusInfo:
+    def test_staged_file_appears_in_staged(self, repo_with_file):
+        # hello.txt was committed; re-staging with new content makes it staged
         (repo_with_file / "hello.txt").write_text("changed!")
-        _, additions, removals = utils.get_staging_area()
+        main_commands.stage(["hello.txt"], "additions")
+        staging = utils.get_staging_area()
         _, _, _, _, head_hash = utils.check_head()
         prev_files = utils.get_commit(head_hash).files
         directory_files = utils.get_directory_files_dictionary(".")
-        unmodified, modified = utils.get_unstaged_tracked_modified(
-            directory_files, additions, removals, prev_files
-        )
-        assert "hello.txt" in modified
-        assert "hello.txt" not in unmodified
+        untracked, staged, unstaged = utils.get_status_info(directory_files, staging, prev_files)
+        assert "hello.txt" in staged
+
+    def test_unstaged_modification_appears_in_unstaged(self, repo_with_file):
+        # Modify hello.txt in working dir without re-staging
+        (repo_with_file / "hello.txt").write_text("changed!")
+        staging = utils.get_staging_area()
+        _, _, _, _, head_hash = utils.check_head()
+        prev_files = utils.get_commit(head_hash).files
+        directory_files = utils.get_directory_files_dictionary(".")
+        untracked, staged, unstaged = utils.get_status_info(directory_files, staging, prev_files)
+        assert "hello.txt" in unstaged
+
+    def test_untracked_file_appears_in_untracked(self, repo_with_file):
+        (repo_with_file / "new.txt").write_text("new")
+        staging = utils.get_staging_area()
+        _, _, _, _, head_hash = utils.check_head()
+        prev_files = utils.get_commit(head_hash).files
+        directory_files = utils.get_directory_files_dictionary(".")
+        untracked, staged, unstaged = utils.get_status_info(directory_files, staging, prev_files)
+        assert "new.txt" in untracked
 
 
 # ---------------------------------------------------------------------------

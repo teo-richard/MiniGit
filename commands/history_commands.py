@@ -42,16 +42,11 @@ def revert(commit_hash, message):
     basic_commands.empty()
 
     # Stage all files from the target commit
-    staging_area, _, _ = utils.get_staging_area()
+    staging_area = utils.get_staging_area()
 
     for file, blob_hash in revert_commit_files.items():
-        staging_area["additions"][file] = blob_hash
+        staging_area[file] = blob_hash # Resetting to the correct hash
 
-    # But the commit() function sees the most recent commit and picks up all files from that commit
-    # Solution: stage files we don't want in our revert commit for removal
-    remove_files = [filename for filename in tracked_files.keys() if filename not in revert_commit_files.keys()]
-    for filename in remove_files:
-        staging_area["removals"].append(filename)
 
     with open(".minigit/index", "wb") as f:
         pickle.dump(staging_area, f)

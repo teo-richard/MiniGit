@@ -33,27 +33,29 @@ def checkout_commit(checkout_hash, print_detached=True):
     tracked_files = utils.get_tracked_files()
 
     # Get files in staging area
-    _, _, removals = utils.get_staging_area()
+    index = utils.get_staging_area()
 
-    # Check if the files have been modified and then check if any of the files are staged as a removal
+    # Check each tracked file for changes that would be lost by the checkout
     for file, hash in tracked_files.items():
+
         if not os.path.exists(file):
             print(f"Unable to checkout: tracked file {file} is missing. Did you delete it?")
-            return
+            return False
         try:
             with open(file, "rb") as f:
                 filecontent = f.read()
             filehash = hashlib.sha1(filecontent).hexdigest()
             if filehash != hash:
                 print("Unable to checkout because it will overwrite changes that have not been committed. ")
-                return
+                answer = input("Force checkout? y/n:")
+                if answer.lower() == "y":
+                    continue
+                else:
+                    return False
         except (PermissionError, IOError, IsADirectoryError) as e:
             print(f"Unable to checkout: There is a problem reading {file}.\n{e}")
-            return
+            return False
         
-        if file in removals:
-            print(f"ERROR: {file} is staged as a removal but is in the commit you are checking out. Remove {file} from staging area before checking out.")
-            return
 
 
 
@@ -104,12 +106,15 @@ def branch_switch(branch_name):
         commit_hash_path = Path(".minigit") / "objects" / "commits" / commit_hash[:2] / commit_hash
 
         # Checkout the commit (this restores files and creates a detached HEAD)
-        checkout_commit(commit_hash, print_detached=False)
+        result = checkout_commit(commit_hash, print_detached=False)
+        if result is False:
+            print(f"\nNote: switch to '{branch_name}' was aborted. HEAD and working directory are unchanged.")
+            return
 
         # Re-attach HEAD to the branch reference instead of pointing directly to the commit
-        # Format: "refs: refs/heads/branch_name" indicates HEAD points to a branch
+        # Format: "ref: refs/heads/branch_name" indicates HEAD points to a branch
         # This ensures future commits will update the branch pointer
-        new_head = f"refs: refs/heads/{branch_name}"
+        new_head = f"ref: refs/heads/{branch_name}"
         with open(".minigit/HEAD", "w") as f:
             f.write(new_head)
     else:
@@ -141,7 +146,7 @@ def branch_create(branch_name):
 
     # Attach HEAD to the newly created branch
     # Future commits will now update this branch pointer
-    new_head = f"refs: refs/heads/{branch_name}"
+    new_head = f"ref: refs/heads/{branch_name}"
     with open(".minigit/HEAD", "w") as f:
         f.write(new_head)
     
@@ -167,11 +172,11 @@ def remove_branch_ref(branch_name):
     head_detached = head_tuple[0]  # Boolean: True if HEAD is detached
 
     # Safety check: Only allow deletion if HEAD is not attached to this branch
-    if (head_branch != branch_name) & (branch_name != None):
+    if (head_branch != branch_name) and (branch_name is not None):
         # Safe to delete - either different branch or HEAD is detached
         branch_path = Path(".minigit") / "refs" / "heads" / branch_name
         os.remove(branch_path)
-    elif (branch_name == None) & (head_detached):
+    elif (branch_name is None) and head_detached:
         # Cannot default to current branch when HEAD is detached
         print("Cannot default to current branch because head is detached. Please try again.")
     else:

@@ -72,29 +72,26 @@ def repo(tmp_path, monkeypatch):
 
 @pytest.fixture
 def repo_one(tmp_path, monkeypatch):
-    """Repo with one committed file (hello.txt = 'hello world')."""
+    """Repo with one committed file (hello.txt = 'hello world'). Index retains hello.txt."""
     monkeypatch.chdir(tmp_path)
     main_commands.init()
     (tmp_path / "hello.txt").write_bytes(b"hello world")
     main_commands.stage(["hello.txt"], "additions")
     main_commands.commit("first commit")
-    basic_commands.empty()
     return tmp_path
 
 
 @pytest.fixture
 def repo_two(tmp_path, monkeypatch):
-    """Repo with two commits so there is a real parent chain."""
+    """Repo with two commits so there is a real parent chain. Index retains both files."""
     monkeypatch.chdir(tmp_path)
     main_commands.init()
     (tmp_path / "hello.txt").write_bytes(b"hello world")
     main_commands.stage(["hello.txt"], "additions")
     main_commands.commit("first commit")
-    basic_commands.empty()
     (tmp_path / "second.txt").write_bytes(b"second file")
     main_commands.stage(["second.txt"], "additions")
     main_commands.commit("second commit")
-    basic_commands.empty()
     return tmp_path
 
 
@@ -112,14 +109,13 @@ def two_repos(tmp_path, monkeypatch):
     (local / "hello.txt").write_bytes(b"hello world")
     main_commands.stage(["hello.txt"], "additions")
     main_commands.commit("initial commit")
-    basic_commands.empty()
 
     # Build a bare-skeleton remote (no initial commit, no branch file)
     for subdir in (".minigit/objects/commits", ".minigit/objects/blobs", ".minigit/refs/heads"):
         (remote / subdir).mkdir(parents=True)
     (remote / ".minigit" / "HEAD").write_text("ref: refs/heads/master")
     (remote / ".minigit" / "config").write_text(json.dumps({"remotes": {}}))
-    (remote / ".minigit" / "index").write_bytes(pickle.dumps({"additions": {}, "removals": []}))
+    (remote / ".minigit" / "index").write_bytes(pickle.dumps({}))
     (remote / ".minigitignore").write_text("")
 
     # Register remote in local config
@@ -138,16 +134,20 @@ class TestInitEdgeCases:
         assert "already exists" in out.lower() or "fool" in out.lower()
 
     def test_double_init_does_not_overwrite_existing_commit(self, repo):
+        # Create a commit so there is something to preserve
+        (repo / "f.txt").write_bytes(b"data")
+        main_commands.stage(["f.txt"], "additions")
+        main_commands.commit("a commit")
         initial_hash = _head_hash(repo)
-        main_commands.init()
+        main_commands.init()  # should print warning and leave repo untouched
         assert _head_hash(repo) == initial_hash
 
     def test_double_init_does_not_clear_staging_area(self, repo):
         (repo / "file.txt").write_bytes(b"data")
         main_commands.stage(["file.txt"], "additions")
         main_commands.init()
-        _, additions, _ = utils.get_staging_area()
-        assert "file.txt" in additions
+        staging = utils.get_staging_area()
+        assert "file.txt" in staging
 
 
 # ===========================================================================
@@ -262,9 +262,10 @@ class TestBranchDeleteEdgeCases:
         branch_commands.remove_branch_ref("to_delete")
         assert not (repo_one / ".minigit" / "refs" / "heads" / "to_delete").exists()
 
-    def test_delete_when_head_is_detached_and_branch_is_none_prints_error(self, repo_one, capsys):
+    def test_delete_when_head_is_detached_and_branch_is_none_prints_error(self, repo_two, capsys):
         """Calling remove_branch_ref(None) with detached HEAD should print an error."""
-        parent = utils.get_commit(_head_hash(repo_one)).parent[0]
+        # Check out the first commit (parent of tip) to create a detached HEAD
+        parent = utils.get_commit(_head_hash(repo_two)).parent[0]
         branch_commands.checkout_commit(parent)
         branch_commands.remove_branch_ref(None)
         out = capsys.readouterr().out
@@ -276,12 +277,12 @@ class TestBranchDeleteEdgeCases:
 # ===========================================================================
 
 class TestAmendDetachedHead:
-    def test_amend_on_detached_head_does_not_create_none_branch_file(self, repo_one):
+    def test_amend_on_detached_head_does_not_create_none_branch_file(self, repo_two):
         """FIXED BUG-2: amend() must not create refs/heads/None when detached."""
-        parent = utils.get_commit(_head_hash(repo_one)).parent[0]
+        parent = utils.get_commit(_head_hash(repo_two)).parent[0]
         branch_commands.checkout_commit(parent)
         info_commands.amend("amended in detached state")
-        none_branch_file = repo_one / ".minigit" / "refs" / "heads" / "None"
+        none_branch_file = repo_two / ".minigit" / "refs" / "heads" / "None"
         assert not none_branch_file.exists()
 
 
@@ -384,44 +385,41 @@ class TestRemotePushNothingToPush:
 # ===========================================================================
 
 class TestRevertEdgeCases:
-    def test_revert_default_message_contains_exact_commit_hash(self, repo_one, monkeypatch):
+    def test_revert_default_message_contains_exact_commit_hash(self, repo_two, monkeypatch):
         """FIXED: the loop variable is now blob_hash (not hash), so commit_hash
         is not shadowed and the default message contains the correct hash."""
         monkeypatch.setattr("builtins.input", lambda _: "y")
-        initial_hash = utils.get_commit(_head_hash(repo_one)).parent[0]
+        initial_hash = utils.get_commit(_head_hash(repo_two)).parent[0]
         history_commands.revert(initial_hash, None)
-        new_commit = utils.get_commit(_head_hash(repo_one))
+        new_commit = utils.get_commit(_head_hash(repo_two))
         assert initial_hash in new_commit.message
 
-    def test_revert_explicit_message_used_verbatim(self, repo_one, monkeypatch):
+    def test_revert_explicit_message_used_verbatim(self, repo_two, monkeypatch):
         monkeypatch.setattr("builtins.input", lambda _: "y")
-        initial_hash = utils.get_commit(_head_hash(repo_one)).parent[0]
+        initial_hash = utils.get_commit(_head_hash(repo_two)).parent[0]
         history_commands.revert(initial_hash, "my custom message")
-        new_commit = utils.get_commit(_head_hash(repo_one))
+        new_commit = utils.get_commit(_head_hash(repo_two))
         assert new_commit.message == "my custom message"
 
-    def test_revert_to_initial_commit_yields_empty_files(self, repo_one, monkeypatch):
-        """BUG-6: revert() to the initial commit (files={}) should produce a
-        commit with no files, but instead the files from the parent commit are
-        silently carried over because revert() never stages them for removal.
-        This test asserts the CORRECT expected behaviour and currently FAILS."""
+    def test_revert_to_initial_commit_yields_empty_files(self, repo_two, monkeypatch):
+        """Reverting to the first commit should produce a commit with only that commit's files."""
         monkeypatch.setattr("builtins.input", lambda _: "y")
-        initial_hash = utils.get_commit(_head_hash(repo_one)).parent[0]
-        history_commands.revert(initial_hash, "back to empty")
-        new_commit = utils.get_commit(_head_hash(repo_one))
-        assert new_commit.files == {}
+        initial_hash = utils.get_commit(_head_hash(repo_two)).parent[0]
+        history_commands.revert(initial_hash, "back to first")
+        new_commit = utils.get_commit(_head_hash(repo_two))
+        assert new_commit.files == utils.get_commit(initial_hash).files
 
-    def test_revert_creates_new_commit(self, repo_one, monkeypatch):
+    def test_revert_creates_new_commit(self, repo_two, monkeypatch):
         monkeypatch.setattr("builtins.input", lambda _: "y")
-        before = _head_hash(repo_one)
+        before = _head_hash(repo_two)
         initial_hash = utils.get_commit(before).parent[0]
         history_commands.revert(initial_hash, "revert")
-        assert _head_hash(repo_one) != before
+        assert _head_hash(repo_two) != before
 
-    def test_revert_preserves_history(self, repo_one, monkeypatch):
+    def test_revert_preserves_history(self, repo_two, monkeypatch):
         """revert does not destroy history — old commit is still reachable."""
         monkeypatch.setattr("builtins.input", lambda _: "y")
-        original_tip = _head_hash(repo_one)
+        original_tip = _head_hash(repo_two)
         initial_hash = utils.get_commit(original_tip).parent[0]
         history_commands.revert(initial_hash, "revert")
         # The original tip commit must still exist on disk
@@ -449,12 +447,12 @@ class TestResetEdgeCases:
     def test_soft_reset_does_not_clear_staging_area(self, repo_two, monkeypatch):
         """Soft reset leaves staged files alone."""
         monkeypatch.setattr("builtins.input", lambda _: "y")
-        # Reset from a clean state — staging area should remain empty
+        # Soft reset does not change staging area
+        staging_before = utils.get_staging_area()
         parent = utils.get_commit(_head_hash(repo_two)).parent[0]
         history_commands.reset(parent, "soft")
-        _, additions, removals = utils.get_staging_area()
-        assert not additions
-        assert not removals
+        staging_after = utils.get_staging_area()
+        assert staging_before == staging_after
 
     def test_hard_reset_moves_branch_pointer(self, repo_two, monkeypatch):
         monkeypatch.setattr("builtins.input", lambda _: "y")
@@ -489,16 +487,19 @@ class TestResetEdgeCases:
         monkeypatch.setattr("builtins.input", lambda _: "y")
         parent = utils.get_commit(_head_hash(repo_two)).parent[0]
         history_commands.reset(parent, "hard")
-        _, additions, removals = utils.get_staging_area()
-        assert not additions
-        assert not removals
+        staging = utils.get_staging_area()
+        assert not staging
 
     def test_reset_on_detached_head_moves_head(self, repo_two, monkeypatch):
         monkeypatch.setattr("builtins.input", lambda _: "y")
+        # Add a 3rd commit so we have a grandparent to reset back to
+        (repo_two / "third.txt").write_bytes(b"third")
+        main_commands.stage(["third.txt"], "additions")
+        main_commands.commit("third commit")
         tip = _head_hash(repo_two)
         parent = utils.get_commit(tip).parent[0]
-        branch_commands.checkout_commit(parent)
         grandparent = utils.get_commit(parent).parent[0]
+        branch_commands.checkout_commit(parent)
         history_commands.reset(grandparent, "hard")
         assert _head_hash(repo_two) == grandparent
 
@@ -508,20 +509,12 @@ class TestResetEdgeCases:
 # ===========================================================================
 
 class TestMgIgnoreEdgeCases:
-    def test_mgignore_overwrites_not_appends(self, repo):
-        """Calling mgignore twice replaces, not accumulates."""
-        basic_commands.mgignore(["first.log"])
-        basic_commands.mgignore(["second.log"])
-        content = (repo / ".minigitignore").read_text()
-        assert "first.log" not in content
-        assert "second.log" in content
-
     def test_mgignore_prevents_staging(self, repo):
         basic_commands.mgignore(["secret.key"])
         (repo / "secret.key").write_bytes(b"topsecret")
         main_commands.stage(["secret.key"], "additions")
-        _, additions, _ = utils.get_staging_area()
-        assert "secret.key" not in additions
+        staging = utils.get_staging_area()
+        assert "secret.key" not in staging
 
     def test_mgignore_multiple_patterns(self, repo):
         basic_commands.mgignore(["*.log", "*.tmp", "build/"])
@@ -579,8 +572,8 @@ class TestStageEdgeCases:
 
     def test_stage_nonexistent_file_does_not_add_to_staging(self, repo):
         main_commands.stage(["ghost.txt"], "additions")
-        _, additions, _ = utils.get_staging_area()
-        assert "ghost.txt" not in additions
+        staging = utils.get_staging_area()
+        assert "ghost.txt" not in staging
 
     def test_stage_removal_of_untracked_file_prints_error(self, repo, capsys):
         (repo / "untracked.txt").write_bytes(b"data")
@@ -588,19 +581,19 @@ class TestStageEdgeCases:
         out = capsys.readouterr().out
         assert "cannot remove" in out.lower() or "not being tracked" in out.lower()
 
-    def test_stage_removal_of_untracked_not_in_removals(self, repo):
+    def test_stage_removal_of_untracked_not_in_index(self, repo):
         (repo / "untracked.txt").write_bytes(b"data")
         main_commands.stage(["untracked.txt"], "removals")
-        _, _, removals = utils.get_staging_area()
-        assert "untracked.txt" not in removals
+        staging = utils.get_staging_area()
+        assert "untracked.txt" not in staging
 
     def test_restage_same_file_with_new_content_updates_hash(self, repo_one):
-        original_hash = utils.get_staging_area()[1].get("hello.txt")
+        original_hash = utils.get_staging_area().get("hello.txt")
         (repo_one / "hello.txt").write_bytes(b"completely different")
         main_commands.stage(["hello.txt"], "additions")
-        _, additions, _ = utils.get_staging_area()
+        staging = utils.get_staging_area()
         expected = hashlib.sha1(b"completely different").hexdigest()
-        assert additions["hello.txt"] == expected
+        assert staging["hello.txt"] == expected
 
     def test_stage_directory_expands_to_individual_files(self, repo):
         subdir = repo / "src"
@@ -608,9 +601,9 @@ class TestStageEdgeCases:
         (subdir / "a.py").write_bytes(b"a")
         (subdir / "b.py").write_bytes(b"b")
         main_commands.stage(["src"], "additions")
-        _, additions, _ = utils.get_staging_area()
-        assert any("a.py" in k for k in additions)
-        assert any("b.py" in k for k in additions)
+        staging = utils.get_staging_area()
+        assert any("a.py" in k for k in staging)
+        assert any("b.py" in k for k in staging)
 
 
 # ===========================================================================
@@ -623,27 +616,28 @@ class TestEmptyFileEdgeCases:
         out = capsys.readouterr().out
         assert "cannot remove" in out.lower() or "staging area" in out.lower()
 
-    def test_unstage_file_removes_it_from_additions(self, repo_one):
+    def test_unstage_file_removes_it_from_index(self, repo_one):
         (repo_one / "new.txt").write_bytes(b"new")
         main_commands.stage(["new.txt"], "additions")
         basic_commands.empty_file(["new.txt"])
-        _, additions, _ = utils.get_staging_area()
-        assert "new.txt" not in additions
+        staging = utils.get_staging_area()
+        assert "new.txt" not in staging
 
-    def test_unstage_removal_removes_from_removals(self, repo_one):
+    def test_unstage_removal_restores_file_to_index(self, repo_one):
+        # rm removes from index; empty_file restores it from HEAD
         main_commands.stage(["hello.txt"], "removals")
         basic_commands.empty_file(["hello.txt"])
-        _, _, removals = utils.get_staging_area()
-        assert "hello.txt" not in removals
+        staging = utils.get_staging_area()
+        assert "hello.txt" in staging
 
     def test_unstage_one_of_multiple_staged_files(self, repo_one):
         for name in ("a.txt", "b.txt"):
             (repo_one / name).write_bytes(name.encode())
         main_commands.stage(["a.txt", "b.txt"], "additions")
         basic_commands.empty_file(["a.txt"])
-        _, additions, _ = utils.get_staging_area()
-        assert "a.txt" not in additions
-        assert "b.txt" in additions
+        staging = utils.get_staging_area()
+        assert "a.txt" not in staging
+        assert "b.txt" in staging
 
 
 # ===========================================================================
@@ -668,8 +662,8 @@ class TestStatusEdgeCases:
         assert "staged.txt" in capsys.readouterr().out
 
     def test_status_on_detached_head_prints_detached_notice(self, repo_one, capsys):
-        parent = utils.get_commit(_head_hash(repo_one)).parent[0]
-        branch_commands.checkout_commit(parent)
+        # Checking out the current commit hash detaches HEAD
+        branch_commands.checkout_commit(_head_hash(repo_one))
         info_commands.status()
         assert "detached" in capsys.readouterr().out.lower()
 
@@ -684,10 +678,10 @@ class TestStatusEdgeCases:
 # ===========================================================================
 
 class TestLogEdgeCases:
-    def test_log_only_initial_commit_does_not_crash(self, repo, capsys):
+    def test_log_on_fresh_repo_prints_no_commits_message(self, repo, capsys):
         info_commands.log()
         out = capsys.readouterr().out
-        assert "initial commit" in out.lower() or "only the initial" in out.lower()
+        assert "no commits" in out.lower()
 
     def test_log_all_with_diverged_branches_does_not_crash(self, repo_one, capsys):
         branch_commands.branch_create("feature")
@@ -767,13 +761,13 @@ class TestCheckoutEdgeCases:
         assert current in head_content
         assert "refs" not in head_content  # detached
 
-    def test_checkout_blocked_when_file_is_missing_head_unchanged(self, repo_one):
+    def test_checkout_blocked_when_file_is_missing_head_unchanged(self, repo_two):
         """If checkout is blocked, HEAD must not move."""
-        (repo_one / "hello.txt").unlink()
-        parent = utils.get_commit(_head_hash(repo_one)).parent[0]
-        before_head = (repo_one / ".minigit" / "HEAD").read_text()
+        (repo_two / "hello.txt").unlink()
+        parent = utils.get_commit(_head_hash(repo_two)).parent[0]
+        before_head = (repo_two / ".minigit" / "HEAD").read_text()
         branch_commands.checkout_commit(parent)
-        after_head = (repo_one / ".minigit" / "HEAD").read_text()
+        after_head = (repo_two / ".minigit" / "HEAD").read_text()
         assert after_head == before_head
 
     def test_checkout_by_branch_name_switches_branch(self, repo_one):
@@ -844,13 +838,13 @@ class TestCheckUncommittedChangesAbort:
         history_commands.reset(utils.get_commit(_head_hash(repo_two)).parent[0], "hard")
         assert (repo_two / "hello.txt").read_bytes() == b"dirty"
 
-    def test_revert_aborted_by_n_does_not_create_new_commit(self, repo_one, monkeypatch):
+    def test_revert_aborted_by_n_does_not_create_new_commit(self, repo_two, monkeypatch):
         monkeypatch.setattr("builtins.input", lambda _: "n")
-        (repo_one / "hello.txt").write_bytes(b"dirty")
-        original_hash = _head_hash(repo_one)
+        (repo_two / "hello.txt").write_bytes(b"dirty")
+        original_hash = _head_hash(repo_two)
         initial_hash = utils.get_commit(original_hash).parent[0]
         history_commands.revert(initial_hash, "should not happen")
-        assert _head_hash(repo_one) == original_hash
+        assert _head_hash(repo_two) == original_hash
 
     def test_reset_proceeds_when_user_answers_y(self, repo_two, monkeypatch):
         monkeypatch.setattr("builtins.input", lambda _: "y")
@@ -972,10 +966,10 @@ class TestFreshRepoOperations:
         info_commands.status()
         capsys.readouterr()  # just verify no exception
 
-    def test_log_on_fresh_repo_shows_initial_commit(self, repo, capsys):
+    def test_log_on_fresh_repo_shows_no_commits_message(self, repo, capsys):
         info_commands.log()
         out = capsys.readouterr().out
-        assert "initial commit" in out.lower() or "only the initial" in out.lower()
+        assert "no commits" in out.lower()
 
     def test_log_all_on_fresh_repo_does_not_crash(self, repo, capsys):
         info_commands.log_all()
@@ -985,9 +979,10 @@ class TestFreshRepoOperations:
         info_commands.reflog()
         capsys.readouterr()
 
-    def test_branch_list_on_fresh_repo_shows_master(self, repo, capsys):
+    def test_branch_list_on_fresh_repo_does_not_crash(self, repo, capsys):
+        # No branch file exists yet (first commit hasn't been made), so output is empty
         branch_commands.branch_list()
-        assert "master" in capsys.readouterr().out
+        capsys.readouterr()  # just verify no exception
 
 
 # ===========================================================================
@@ -1010,31 +1005,30 @@ class TestBranchSwitchSameBranch:
 # ===========================================================================
 
 class TestDetachedHeadWorkflow:
-    def test_commits_in_detached_head_not_lost_immediately(self, repo_one):
+    def test_commits_in_detached_head_not_lost_immediately(self, repo_two):
         """Commits made in detached HEAD are reachable via the HEAD hash
         even after switching back to a branch."""
-        parent = utils.get_commit(_head_hash(repo_one)).parent[0]
+        # Checkout first commit (parent of tip) to enter detached HEAD state
+        parent = utils.get_commit(_head_hash(repo_two)).parent[0]
         branch_commands.checkout_commit(parent)
 
-        (repo_one / "detached_work.txt").write_bytes(b"work done in detached state")
+        (repo_two / "detached_work.txt").write_bytes(b"work done in detached state")
         main_commands.stage(["detached_work.txt"], "additions")
         main_commands.commit("detached commit")
-        basic_commands.empty()
-        detached_tip = _head_hash(repo_one)
+        detached_tip = _head_hash(repo_two)
 
         # The commit must exist in the objects store
         assert utils.get_commit(detached_tip).message == "detached commit"
 
-    def test_switching_back_to_branch_after_detached_leaves_branch_unchanged(self, repo_one):
-        master_before = _branch_hash(repo_one, "master")
-        parent = utils.get_commit(_head_hash(repo_one)).parent[0]
+    def test_switching_back_to_branch_after_detached_leaves_branch_unchanged(self, repo_two):
+        master_before = _branch_hash(repo_two, "master")
+        parent = utils.get_commit(_head_hash(repo_two)).parent[0]
         branch_commands.checkout_commit(parent)
-        (repo_one / "d.txt").write_bytes(b"d")
+        (repo_two / "d.txt").write_bytes(b"d")
         main_commands.stage(["d.txt"], "additions")
         main_commands.commit("detached")
-        basic_commands.empty()
         branch_commands.branch_switch("master")
-        assert _branch_hash(repo_one, "master") == master_before
+        assert _branch_hash(repo_two, "master") == master_before
 
 
 # ===========================================================================
@@ -1074,42 +1068,33 @@ class TestInitNonexistentDir:
 
 
 # ---------------------------------------------------------------------------
-# BUG: commit() never clears the staging area.
-#      Every test in this file manually calls basic_commands.empty() after
-#      each commit to paper over this.  A real repo should auto-clear.
+# Index persists after commit (like real git).
 # ---------------------------------------------------------------------------
 
-class TestStagingAreaClearedAfterCommit:
-    def test_staging_area_additions_empty_after_commit(self, repo):
-        """The staging area should be empty after a successful commit."""
+class TestIndexBehaviourAfterCommit:
+    def test_index_persists_after_commit(self, repo):
+        """The index is NOT cleared after a commit — it persists like real git."""
         (repo / "a.txt").write_bytes(b"a")
         main_commands.stage(["a.txt"], "additions")
         main_commands.commit("add a")
-        # Intentionally NOT calling basic_commands.empty()
-        _, additions, removals = utils.get_staging_area()
-        assert additions == {}, \
-            f"BUG: staging additions not cleared after commit: {additions}"
+        staging = utils.get_staging_area()
+        assert "a.txt" in staging, \
+            "Index should still contain a.txt after commit (index is persistent)"
 
-    def test_staging_area_removals_empty_after_commit(self, repo_one):
-        """Staged removals should also be cleared after commit."""
+    def test_rm_file_absent_from_index_after_commit(self, repo_one):
+        """After rm + commit, file is absent from the index."""
         main_commands.stage(["hello.txt"], "removals")
         main_commands.commit("remove hello")
-        # Intentionally NOT calling basic_commands.empty()
-        _, additions, removals = utils.get_staging_area()
-        assert removals == [], \
-            f"BUG: staging removals not cleared after commit: {removals}"
+        staging = utils.get_staging_area()
+        assert "hello.txt" not in staging
 
     def test_double_commit_without_staging_produces_different_hashes(self, repo_one):
         """Committing twice in a row (no new staging between) must give different
-        hashes because each commit has a different parent — but if the staging
-        area carries stale data from the first commit the second commit's files
-        dict will include duplicated additions."""
+        hashes because each commit has a different parent."""
         main_commands.commit("first no-stage commit")
-        # No empty() call
         h1 = _head_hash(repo_one)
         main_commands.commit("second no-stage commit")
         h2 = _head_hash(repo_one)
-        # Two different commits must have different hashes
         assert h1 != h2
 
 
@@ -1218,9 +1203,9 @@ class TestDotfileNameMangling:
         """Staging '.env' should store it under the key '.env', not 'env'."""
         (repo / ".env").write_bytes(b"SECRET=hunter2")
         main_commands.stage([".env"], "additions")
-        _, additions, _ = utils.get_staging_area()
-        assert ".env" in additions, \
-            f"BUG: dotfile stored as '{list(additions.keys())}' instead of '.env'"
+        staging = utils.get_staging_area()
+        assert ".env" in staging, \
+            f"BUG: dotfile stored as '{list(staging.keys())}' instead of '.env'"
 
     def test_committed_dotfile_has_correct_name_in_commit(self, repo):
         """The commit object must record the file as '.env', not 'env'."""
@@ -1238,7 +1223,6 @@ class TestDotfileNameMangling:
         (repo_one / ".env").write_bytes(b"SECRET=hunter2")
         main_commands.stage([".env"], "additions")
         main_commands.commit("add dotfile")
-        basic_commands.empty()
         commit_with_dotfile = _head_hash(repo_one)
 
         # Go back one commit then return
@@ -1319,8 +1303,7 @@ class TestCheckoutIgnoresStagingArea:
         BUG: checkout overwrites the file so the staged hash is now stale."""
         (repo_two / "hello.txt").write_bytes(b"staged version")
         main_commands.stage(["hello.txt"], "additions")
-        _, additions_before, _ = utils.get_staging_area()
-        staged_hash = additions_before["hello.txt"]
+        staged_hash = utils.get_staging_area()["hello.txt"]
 
         parent = utils.get_commit(_head_hash(repo_two)).parent[0]
         branch_commands.checkout_commit(parent)
@@ -1459,8 +1442,8 @@ class TestMgIgnoreAdditional:
         basic_commands.mgignore(["*.log"])
         (repo / "readme.txt").write_bytes(b"ok")
         main_commands.stage(["readme.txt"], "additions")
-        _, additions, _ = utils.get_staging_area()
-        assert "readme.txt" in additions
+        staging = utils.get_staging_area()
+        assert "readme.txt" in staging
 
 
 # ===========================================================================

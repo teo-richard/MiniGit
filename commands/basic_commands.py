@@ -4,6 +4,11 @@ Basic utility commands for MiniGit.
 
 import pickle
 import utils
+from pathlib import Path
+from utils import Commit
+import getpass
+
+
 
 def empty():
     """
@@ -16,10 +21,12 @@ def empty():
     This function resets both to empty, effectively unstaging all changes.
     """
     # Create empty staging area structure
-    empty_dict = {"additions":{}, "removals":[]}
+    empty_dict = {}
     # Write empty structure to index file
     with open(".minigit/index", "wb") as f:
         pickle.dump(empty_dict, f)
+
+
 
 def mgignore(files):
     """
@@ -39,32 +46,31 @@ def mgignore(files):
 
 def empty_file(files):
     """
-    Remove one or more files from the staging area.
+    Unstage one or more files.
 
     Args:
         files: Either a single filename (str) or list of filenames to unstage
 
-    This will remove the file from either additions or removals in the staging area.
-    Supports selective unstaging of multiple files in one operation.
+    - If the file is staged as an addition, it is removed from the index.
+    - If the file was staged for removal (deleted from the index), it is restored
+      from the HEAD commit back into the index.
+    - If the file is neither staged nor in HEAD, an error is printed.
     """
     filelist = utils.files_to_list(files)
 
-    # Load current staging area
-    staging_area, _, _ = utils.get_staging_area()
+    staging_area = utils.get_staging_area()
 
-    # Process each file to unstage
+    head_hash = utils.check_head()[4]
+    head_commit_files = utils.get_commit(head_hash).files if head_hash else {}
+
     for file in filelist:
-        # Check if file is staged for removal and remove it from that list
-        if file in staging_area["removals"]:
-            staging_area["removals"].remove(file)
+        if file in staging_area:
+            del staging_area[file]
+        elif file in head_commit_files:
+            # File was staged for removal — restore it from HEAD
+            staging_area[file] = head_commit_files[file]
         else:
-            # Otherwise try to remove from additions, catching case where file isn't staged
-            try:
-                staging_area["additions"].pop(file)
-            except KeyError:
-                # Provide helpful error message if file isn't actually in staging area
-                print(f"Cannot remove {file} from staging area. Check if file is actually in staging area.")
+            print(f"Cannot remove {file} from staging area. Check if file is actually in staging area.")
 
-    # Write updated staging area back to disk after each file
     with open(".minigit/index", "wb") as f:
         pickle.dump(staging_area, f)
